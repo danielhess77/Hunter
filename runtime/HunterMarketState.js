@@ -1,8 +1,8 @@
 /**
  * Hunter Market State
- * Version: 1.0
+ * Version: 1.1
  *
- * Stores the current state of the market.
+ * Central store for all normalized market data.
  */
 
 class HunterMarketState {
@@ -10,22 +10,34 @@ class HunterMarketState {
     constructor() {
 
         this.symbol = null;
-
         this.price = null;
-
-        this.structure = null;
+        this.timestamp = null;
 
         this.nodes = [];
-
-        this.pattern = null;
-
-        this.relativeStrength = null;
 
     }
 
     update(data) {
 
-        Object.assign(this, data);
+        this.symbol = data.symbol || this.symbol;
+
+        this.price = data.price || this.price;
+
+        this.timestamp = Date.now();
+
+        this.nodes = data.nodes || [];
+
+    }
+
+    clear() {
+
+        this.symbol = null;
+
+        this.price = null;
+
+        this.timestamp = null;
+
+        this.nodes = [];
 
     }
 
