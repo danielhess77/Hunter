@@ -1,6 +1,6 @@
 /**
  * Node Classifier
- * Version 1.2
+ * Version 1.3
  *
  * Determines the institutional role of a node.
  */
@@ -15,10 +15,25 @@ class NodeClassifier {
 
         const isKingNode = magnitude > 0 && magnitude === largestMagnitude;
 
+        // Temporary placeholder.
+        // We'll replace this with the actual Hunter floor logic
+        // once the Data Connector normalizes Skylit fields.
+        const isFloor = node.type === "floor" || node.isFloor === true;
+
         return {
-            type: isKingNode ? "King Node" : "Unknown",
+
+            type: isKingNode
+                ? "King Node"
+                : isFloor
+                    ? "Floor"
+                    : "Unknown",
+
             magnitude,
-            isKingNode
+
+            isKingNode,
+
+            isFloor
+
         };
 
     }
