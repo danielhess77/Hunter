@@ -1,6 +1,6 @@
 /**
  * Node Classifier
- * Version 1.4
+ * Version 1.5
  *
  * Determines the institutional role of a node.
  */
@@ -15,7 +15,7 @@ class NodeClassifier {
 
         const isKingNode = magnitude > 0 && magnitude === largestMagnitude;
 
-        // Temporary placeholders until Data Connector
+        // Temporary placeholders until the Data Connector
         // normalizes Skylit fields.
 
         const isFloor =
@@ -26,6 +26,10 @@ class NodeClassifier {
             node.type === "ceiling" ||
             node.isCeiling === true;
 
+        const isGatekeeper =
+            node.type === "gatekeeper" ||
+            node.isGatekeeper === true;
+
         let type = "Unknown";
 
         if (isKingNode)
@@ -34,6 +38,8 @@ class NodeClassifier {
             type = "Floor";
         else if (isCeiling)
             type = "Ceiling";
+        else if (isGatekeeper)
+            type = "Gatekeeper";
 
         return {
 
@@ -45,7 +51,9 @@ class NodeClassifier {
 
             isFloor,
 
-            isCeiling
+            isCeiling,
+
+            isGatekeeper
 
         };
 
