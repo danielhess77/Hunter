@@ -1,33 +1,25 @@
 /**
  * Node Classifier
- * Version 1.1
+ * Version 1.2
  *
  * Determines the institutional role of a node.
  */
 
 class NodeClassifier {
 
-    classify(node) {
+    classify(node, context = {}) {
 
-        // Default result
+        const magnitude = Math.abs(node.magnitude || node.net || node.value || 0);
 
-        let result = {
-            type: "Unknown",
-            magnitude: 0,
-            isKingNode: false
+        const largestMagnitude = context.largestMagnitude || 0;
+
+        const isKingNode = magnitude > 0 && magnitude === largestMagnitude;
+
+        return {
+            type: isKingNode ? "King Node" : "Unknown",
+            magnitude,
+            isKingNode
         };
-
-        // King Node
-
-        if (node.isKingNode === true) {
-
-            result.type = "King Node";
-            result.isKingNode = true;
-            result.magnitude = node.magnitude || 0;
-
-        }
-
-        return result;
 
     }
 
