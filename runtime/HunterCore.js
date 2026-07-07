@@ -1,20 +1,25 @@
 /**
  * Hunter Core
- * Version: 0.1.0
+ * Version: 0.2.0
  *
- * The central runtime for the Hunter AI Engine.
- * Every module plugs into this class.
+ * Central runtime for Hunter.
  */
+
+import EventBus from "./EventBus.js";
+import EngineRegistry from "./EngineRegistry.js";
+import HunterMarketState from "./HunterMarketState.js";
 
 class HunterCore {
 
     constructor() {
 
-        this.version = "0.1.0";
+        this.version = "0.2.0";
 
-        this.state = {};
+        this.eventBus = new EventBus();
 
-        this.engines = [];
+        this.engineRegistry = new EngineRegistry();
+
+        this.marketState = new HunterMarketState();
 
         this.running = false;
 
@@ -40,9 +45,9 @@ class HunterCore {
 
     registerEngine(engine) {
 
-        this.engines.push(engine);
+        this.engineRegistry.register(engine);
 
-        console.log(`Engine registered: ${engine.name}`);
+        console.log(`Registered: ${engine.name}`);
 
     }
 
