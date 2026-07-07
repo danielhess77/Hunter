@@ -8,6 +8,7 @@
 import EventBus from "./EventBus.js";
 import EngineRegistry from "./EngineRegistry.js";
 import HunterMarketState from "./HunterMarketState.js";
+import InstitutionalMapEngine from "../engines/InstitutionalMapEngine/InstitutionalMapEngine.js";
 
 class HunterCore {
 
@@ -18,6 +19,10 @@ class HunterCore {
         this.eventBus = new EventBus();
 
         this.engineRegistry = new EngineRegistry();
+
+        this.institutionalMapEngine = new InstitutionalMapEngine();
+
+        this.registerEngine(this.institutionalMapEngine);
 
         this.marketState = new HunterMarketState();
 
