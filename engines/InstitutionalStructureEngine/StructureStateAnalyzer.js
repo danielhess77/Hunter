@@ -1,22 +1,35 @@
 /**
  * Structure State Analyzer
- * Version: 1.0
+ * Version: 1.1
  *
- * Determines whether institutional nodes are
- * Building, Stable, Weakening, Broken or Migrating.
+ * Determines institutional node state.
  */
 
 class StructureStateAnalyzer {
 
     analyze(currentNodes = [], previousNodes = []) {
 
-        return currentNodes.map(node => ({
+        const previousMap = new Map(
+            previousNodes.map(node => [node.strike, node])
+        );
 
-            ...node,
+        return currentNodes.map(node => {
 
-            state: "Unknown"
+            const previous = previousMap.get(node.strike);
 
-        }));
+            return {
+
+                ...node,
+
+                previousMagnitude: previous?.magnitude ?? null,
+
+                state: "Unknown",
+
+                percentChange: null
+
+            };
+
+        });
 
     }
 
