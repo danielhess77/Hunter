@@ -2,7 +2,7 @@
  * Hunter Market State
  * Version: 1.1
  *
- * Central store for all normalized market data.
+ * Stores the current institutional market snapshot.
  */
 
 class HunterMarketState {
@@ -10,34 +10,36 @@ class HunterMarketState {
     constructor() {
 
         this.symbol = null;
-        this.price = null;
-        this.timestamp = null;
 
-        this.nodes = [];
+        this.spot = null;
 
-    }
+        this.expirations = [];
 
-    update(data) {
+        this.strikes = [];
 
-        this.symbol = data.symbol || this.symbol;
+        this.gamma = [];
 
-        this.price = data.price || this.price;
+        this.vanna = [];
 
-        this.timestamp = Date.now();
-
-        this.nodes = data.nodes || [];
+        this.lastUpdated = null;
 
     }
 
-    clear() {
+    loadMatrix(matrix) {
 
-        this.symbol = null;
+        this.symbol = matrix.symbol;
 
-        this.price = null;
+        this.spot = matrix.CurrentSpot;
 
-        this.timestamp = null;
+        this.expirations = matrix.Expirations || [];
 
-        this.nodes = [];
+        this.strikes = matrix.Strikes || [];
+
+        this.gamma = matrix.GammaValues || [];
+
+        this.vanna = matrix.VannaValues || [];
+
+        this.lastUpdated = matrix.LastUpdated || null;
 
     }
 
