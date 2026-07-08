@@ -27,6 +27,8 @@ class HunterCore {
 
         this.marketState = new HunterMarketState();
 
+        this.dataConnector = new HunterDataConnector();
+
         this.skylitAdapter = new SkylitAdapter();
 
         this.running = false;
