@@ -1,17 +1,13 @@
 /**
  * Hunter Integration Test
  *
- * End-to-end test of Hunter's
- * institutional pipeline.
+ * End-to-end test using HunterRuntime.
  */
 
 import fs from "fs";
-
-import HunterMarketState from "../runtime/HunterMarketState.js";
-import HunterDataConnector from "../connectors/HunterDataConnector/HunterDataConnector.js";
-import InstitutionalMapEngine from "../engines/InstitutionalMapEngine/InstitutionalMapEngine.js";
-import InstitutionalStructureEngine from "../engines/InstitutionalStructureEngine/InstitutionalStructureEngine.js";
 import path from "path";
+
+import HunterRuntime from "../runtime/HunterRuntime.js";
 
 const jsonPath = path.resolve(
     "tests/Fixtures/SPY_Heatseeker_2026-07-07.json"
@@ -21,27 +17,19 @@ const rawData = JSON.parse(
     fs.readFileSync(jsonPath, "utf8")
 );
 
-const marketState = new HunterMarketState();
+// ----------------------------------------
+// Run Hunter
+// ----------------------------------------
 
-const connector = new HunterDataConnector();
+const hunter = new HunterRuntime();
 
-const mapEngine = new InstitutionalMapEngine();
+const result = await hunter.analyze(rawData);
 
-const structureEngine = new InstitutionalStructureEngine();
+const { marketState, nodes, structure } = result;
 
-connector.connect(rawData, marketState);
-
-const nodes = mapEngine.analyze(marketState);
-    console.log("FIRST NODE:");
-    console.log(nodes[0]);
-
-    console.log("TOP FIVE:");
-    console.log(nodes.slice(0,5));
-
-const structure = structureEngine.analyze(
-    nodes,
-    marketState.spot
-);
+// ----------------------------------------
+// Report
+// ----------------------------------------
 
 console.log("===========================");
 console.log("HUNTER REPORT");
@@ -52,36 +40,58 @@ console.log("Spot:", marketState.spot);
 
 console.log("");
 
-console.log("King Gamma:", structure.kingNode?.strike);
+console.log("Nodes Parsed:", nodes.length);
+
+console.log("");
+
+console.log("King Gamma:",
+    structure.kingNode?.strike ?? "None");
 
 console.log("King Gamma Magnitude:",
-    structure.kingNode?.gammaMagnitude);
+    structure.kingNode?.gammaMagnitude?.toFixed(0) ?? "None");
 
 console.log("");
 
 console.log("Strongest Above:",
-    structure.strongestNodeAboveSpot?.strike);
+    structure.strongestNodeAboveSpot?.strike ?? "None");
 
 console.log("Gamma:",
-    structure.strongestNodeAboveSpot?.gammaMagnitude);
+    structure.strongestNodeAboveSpot?.gammaMagnitude?.toFixed(0) ?? "None");
 
 console.log("");
 
 console.log("Strongest Below:",
-    structure.strongestNodeBelowSpot?.strike);
+    structure.strongestNodeBelowSpot?.strike ?? "None");
 
 console.log("Gamma:",
-    structure.strongestNodeBelowSpot?.gammaMagnitude);
+    structure.strongestNodeBelowSpot?.gammaMagnitude?.toFixed(0) ?? "None");
 
 console.log("");
 
 console.log("Nearest:",
-    structure.nearestNode?.strike);
+    structure.nearestNode?.strike ?? "None");
 
 console.log("Distance:",
-    structure.nearestDistance);
+    structure.nearestDistance?.toFixed(3));
 
 console.log("");
 
 console.log("Nearby Nodes:",
     structure.nearbyNodes.length);
+
+console.log("");
+
+console.log("Top 5 Gamma Nodes");
+
+structure.nodes
+    .sort((a, b) => b.gammaMagnitude - a.gammaMagnitude)
+    .slice(0, 5)
+    .forEach((node, index) => {
+
+        console.log(
+            `${index + 1}. ${node.strike}  (${node.gammaMagnitude.toFixed(0)})`
+        );
+
+    });
+
+console.log("===========================");

@@ -1,0 +1,280 @@
+// ==UserScript==
+// @name         Hunter Overlay v0.5 Runtime Edition
+// @namespace    hunter-sentinel-ai
+// @version      0.5
+// @description  Hunter Runtime-style overlay for Skylit Heatseeker
+// @match        https://app.skylit.ai/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    "use strict";
+
+    const originalFetch = window.fetch;
+
+    window.fetch = async function (...args) {
+        const response = await originalFetch.apply(this, args);
+        const clone = response.clone();
+
+        try {
+            const url = typeof args[0] === "string" ? args[0] : args[0]?.url;
+
+            if (url && url.includes("/api/data")) {
+                const rawData = await clone.json();
+                const result = analyzeWithHunterRuntime(rawData);
+                renderHunterOverlay(result);
+            }
+        } catch (error) {
+            console.warn("Hunter v0.5 Runtime Overlay error:", error);
+        }
+
+        return response;
+    };
+
+    function analyzeWithHunterRuntime(matrix) {
+        const marketState = {
+            symbol: matrix.symbol || "Unknown",
+            spot: matrix.CurrentSpot ?? null,
+            strikes: matrix.Strikes || [],
+            gamma: matrix.GammaValues || [],
+            vanna: matrix.VannaValues || [],
+            lastUpdated: matrix.LastUpdated || new Date().toISOString()
+        };
+
+        const nodes = marketState.strikes.map((strike, index) => {
+            const gammaRow = marketState.gamma[index] || [];
+            const vannaRow = marketState.vanna[index] || [];
+
+            const gammaMagnitude = gammaRow.reduce(
+                (sum, value) => sum + Math.abs(value || 0),
+                0
+            );
+
+            const vannaMagnitude = vannaRow.reduce(
+                (sum, value) => sum + Math.abs(value || 0),
+                0
+            );
+
+            const distance =
+                typeof marketState.spot === "number"
+                    ? strike - marketState.spot
+                    : null;
+
+            const absDistance =
+                typeof distance === "number"
+                    ? Math.abs(distance)
+                    : null;
+
+            return {
+                strike,
+                gamma: gammaRow,
+                vanna: vannaRow,
+                gammaMagnitude,
+                vannaMagnitude,
+                distance,
+                absDistance
+            };
+        });
+
+        const structure = buildStructure(nodes, marketState.spot);
+
+        return {
+            marketState,
+            nodes,
+            structure
+        };
+    }
+
+    function buildStructure(nodes, spot) {
+        const topGammaNodes = [...nodes]
+            .sort((a, b) => b.gammaMagnitude - a.gammaMagnitude);
+
+        const topVannaNodes = [...nodes]
+            .sort((a, b) => b.vannaMagnitude - a.vannaMagnitude);
+
+        const kingGammaNode = topGammaNodes[0] || null;
+        const kingVannaNode = topVannaNodes[0] || null;
+
+        const strongestNodeAboveSpot =
+            [...nodes]
+                .filter(node => typeof spot === "number" && node.strike > spot)
+                .sort((a, b) => b.gammaMagnitude - a.gammaMagnitude)[0] || null;
+
+        const strongestNodeBelowSpot =
+            [...nodes]
+                .filter(node => typeof spot === "number" && node.strike < spot)
+                .sort((a, b) => b.gammaMagnitude - a.gammaMagnitude)[0] || null;
+
+        const nearestNode =
+            [...nodes]
+                .filter(node => node.absDistance !== null)
+                .sort((a, b) => a.absDistance - b.absDistance)[0] || null;
+
+        const nearbyNodes =
+            [...nodes]
+                .filter(node => node.absDistance !== null && node.absDistance <= 2)
+                .sort((a, b) => a.absDistance - b.absDistance);
+
+        return {
+            kingNode: kingGammaNode,
+            kingGammaNode,
+            kingVannaNode,
+            strongestNodeAboveSpot,
+            strongestNodeBelowSpot,
+            nearestNode,
+            nearestDistance: nearestNode ? nearestNode.absDistance : null,
+            nearbyNodes,
+            topGammaNodes: topGammaNodes.slice(0, 10),
+            nodes
+        };
+    }
+
+    function createPanel() {
+        let panel = document.getElementById("hunter-overlay-v05");
+
+        if (panel) return panel;
+
+        panel = document.createElement("div");
+        panel.id = "hunter-overlay-v05";
+
+        panel.style.position = "fixed";
+        panel.style.right = "16px";
+        panel.style.bottom = "16px";
+        panel.style.zIndex = "999999";
+        panel.style.width = "350px";
+        panel.style.maxHeight = "75vh";
+        panel.style.overflowY = "auto";
+        panel.style.background = "rgba(8, 8, 8, 0.94)";
+        panel.style.color = "#ffffff";
+        panel.style.border = "1px solid #555";
+        panel.style.borderRadius = "10px";
+        panel.style.padding = "12px";
+        panel.style.fontFamily = "Arial, sans-serif";
+        panel.style.fontSize = "12px";
+        panel.style.boxShadow = "0 4px 18px rgba(0,0,0,0.45)";
+
+        panel.innerHTML = `
+            <div style="font-size:14px;font-weight:bold;margin-bottom:8px;">
+                HUNTER v0.5
+            </div>
+            <div id="hunter-v05-content">
+                Waiting for Hunter Runtime data...
+            </div>
+        `;
+
+        document.body.appendChild(panel);
+        return panel;
+    }
+
+    function renderHunterOverlay(result) {
+        const panel = createPanel();
+        const content = panel.querySelector("#hunter-v05-content");
+
+        const { marketState, structure } = result;
+
+        const spot = marketState.spot;
+
+        content.innerHTML = `
+            <div><b>Symbol:</b> ${marketState.symbol}</div>
+            <div><b>Spot:</b> ${formatPrice(spot)}</div>
+            <div><b>Nodes:</b> ${structure.nodes.length}</div>
+
+            <hr style="border-color:#333;">
+
+            ${nodeBlock("KING GAMMA", structure.kingGammaNode, spot)}
+            ${nodeBlock("KING VANNA", structure.kingVannaNode, spot)}
+            ${nodeBlock("STRONGEST ABOVE", structure.strongestNodeAboveSpot, spot)}
+            ${nodeBlock("STRONGEST BELOW", structure.strongestNodeBelowSpot, spot)}
+
+            <hr style="border-color:#333;">
+
+            <div><b>NEAREST NODE</b></div>
+            <div>${structure.nearestNode ? structure.nearestNode.strike : "None"}</div>
+            <div><b>Distance:</b> ${
+                structure.nearestDistance !== null
+                    ? structure.nearestDistance.toFixed(3)
+                    : "N/A"
+            }</div>
+            <div><b>Inside ±2:</b> ${
+                structure.nearestDistance !== null && structure.nearestDistance <= 2
+                    ? "YES"
+                    : "NO"
+            }</div>
+
+            <hr style="border-color:#333;">
+
+            <div><b>NEARBY NODES ±2</b></div>
+            ${
+                structure.nearbyNodes.length
+                    ? structure.nearbyNodes.map(node => row(
+                        `${node.strike} ${relativeLabel(node, spot)}`,
+                        formatMagnitude(node.gammaMagnitude)
+                    )).join("")
+                    : "<div>None</div>"
+            }
+
+            <hr style="border-color:#333;">
+
+            <div><b>TOP 10 GAMMA</b></div>
+            ${
+                structure.topGammaNodes.map((node, index) => row(
+                    `${index + 1}. ${node.strike} ${relativeLabel(node, spot)}`,
+                    formatMagnitude(node.gammaMagnitude)
+                )).join("")
+            }
+
+            <hr style="border-color:#333;">
+
+            <div><b>Runtime:</b> ✓ LIVE</div>
+            <div><b>Updated:</b> ${new Date().toLocaleTimeString()}</div>
+        `;
+    }
+
+    function nodeBlock(title, node, spot) {
+        if (!node) {
+            return `
+                <div style="margin-top:8px;"><b>${title}</b></div>
+                <div>None</div>
+            `;
+        }
+
+        return `
+            <div style="margin-top:8px;"><b>${title}</b></div>
+            ${row(`${node.strike} ${relativeLabel(node, spot)}`, formatMagnitude(node.gammaMagnitude))}
+            <div><b>Distance:</b> ${
+                node.absDistance !== null ? node.absDistance.toFixed(3) : "N/A"
+            }</div>
+        `;
+    }
+
+    function row(left, right) {
+        return `
+            <div style="display:flex;justify-content:space-between;margin-top:4px;">
+                <span>${left}</span>
+                <span>${right}</span>
+            </div>
+        `;
+    }
+
+    function relativeLabel(node, spot) {
+        if (typeof spot !== "number") return "";
+
+        if (node.strike > spot) return "▲ Above";
+        if (node.strike < spot) return "▼ Below";
+        return "● At Spot";
+    }
+
+    function formatMagnitude(value) {
+        if (value >= 1_000_000_000) return (value / 1_000_000_000).toFixed(2) + "B";
+        if (value >= 1_000_000) return (value / 1_000_000).toFixed(2) + "M";
+        if (value >= 1_000) return (value / 1_000).toFixed(2) + "K";
+        return String(Math.round(value || 0));
+    }
+
+    function formatPrice(value) {
+        return typeof value === "number" ? value.toFixed(3) : "N/A";
+    }
+
+    createPanel();
+
+})();
