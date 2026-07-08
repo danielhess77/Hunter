@@ -18,17 +18,11 @@ class NodeClassifier {
         // Temporary placeholders until the Data Connector
         // normalizes Skylit fields.
 
-        const isFloor =
-            node.type === "floor" ||
-            node.isFloor === true;
+        const isFloor = false;
 
-        const isCeiling =
-            node.type === "ceiling" ||
-            node.isCeiling === true;
+        const isCeiling = false;
 
-        const isGatekeeper =
-            node.type === "gatekeeper" ||
-            node.isGatekeeper === true;
+        const isGatekeeper = false;
 
         let type = "Unknown";
 
