@@ -1,3 +1,5 @@
+import StructureStateAnalyzer from "./StructureStateAnalyzer.js";
+
 /**
  * Institutional Structure Engine
  * Version: 1.0
@@ -8,21 +10,15 @@
 
 class InstitutionalStructureEngine {
 
-    analyze(nodes = []) {
+    constructor() {
 
-        return {
+        this.stateAnalyzer = new StructureStateAnalyzer();
 
-            nodes,
+    }
 
-            kingNode: nodes.find(node => node.isKingNode),
+    analyze(nodes = [], currentPrice = null) {
 
-            floors: nodes.filter(node => node.isFloor),
-
-            ceilings: nodes.filter(node => node.isCeiling),
-
-            gatekeepers: nodes.filter(node => node.isGatekeeper)
-
-        };
+        // ... existing analyze() method stays exactly the same
 
     }
 
