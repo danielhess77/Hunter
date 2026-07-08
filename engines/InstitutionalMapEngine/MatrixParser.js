@@ -1,9 +1,13 @@
 /**
  * Matrix Parser
- * Version: 1.1
+ * Version: 1.2
  *
  * Converts a Heatseeker matrix into
  * normalized institutional node objects.
+ *
+ * Important:
+ * Gamma and Vanna are kept separate.
+ * Hunter does not combine them into one magnitude.
  */
 
 class MatrixParser {
@@ -33,8 +37,6 @@ class MatrixParser {
                 0
             );
 
-            const magnitude = gammaMagnitude + vannaMagnitude;
-
             nodes.push({
 
                 strike,
@@ -45,9 +47,7 @@ class MatrixParser {
 
                 gammaMagnitude,
 
-                vannaMagnitude,
-
-                magnitude
+                vannaMagnitude
 
             });
 

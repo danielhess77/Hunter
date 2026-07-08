@@ -2,10 +2,13 @@ import StructureStateAnalyzer from "./StructureStateAnalyzer.js";
 
 /**
  * Institutional Structure Engine
- * Version: 1.2
+ * Version: 1.3
  *
  * Aggregates institutional nodes and identifies
  * key structural reference points.
+ *
+ * Important:
+ * King Node is based on Gamma magnitude only.
  */
 
 class InstitutionalStructureEngine {
@@ -46,9 +49,19 @@ class InstitutionalStructureEngine {
             Math.abs(node.strike - currentPrice) <= 2
         );
 
-        const kingNode = stateNodes.reduce(
+        const kingGammaNode = stateNodes.reduce(
             (largest, current) =>
-                !largest || current.magnitude > largest.magnitude
+                !largest ||
+                current.gammaMagnitude > largest.gammaMagnitude
+                    ? current
+                    : largest,
+            null
+        );
+
+        const kingVannaNode = stateNodes.reduce(
+            (largest, current) =>
+                !largest ||
+                current.vannaMagnitude > largest.vannaMagnitude
                     ? current
                     : largest,
             null
@@ -73,7 +86,11 @@ class InstitutionalStructureEngine {
 
             nodes: stateNodes,
 
-            kingNode,
+            kingNode: kingGammaNode,
+
+            kingGammaNode,
+
+            kingVannaNode,
 
             nearestFloor,
 

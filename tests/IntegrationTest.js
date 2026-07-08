@@ -32,6 +32,11 @@ const structureEngine = new InstitutionalStructureEngine();
 connector.connect(rawData, marketState);
 
 const nodes = mapEngine.analyze(marketState);
+    console.log("FIRST NODE:");
+    console.log(nodes[0]);
+
+    console.log("TOP FIVE:");
+    console.log(nodes.slice(0,5));
 
 const structure = structureEngine.analyze(
     nodes,

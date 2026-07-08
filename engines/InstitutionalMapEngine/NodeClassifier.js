@@ -1,27 +1,32 @@
 /**
  * Node Classifier
- * Version 1.5
+ * Version 2.0
  *
- * Determines the institutional role of a node.
+ * Preserves all institutional node data while
+ * adding Hunter classification fields.
  */
 
 class NodeClassifier {
 
     classify(node, context = {}) {
 
-        const magnitude = Math.abs(node.magnitude || node.net || node.value || 0);
+        const magnitude =
+            node.magnitude ??
+            0;
 
-        const largestMagnitude = context.largestMagnitude || 0;
+        const largestMagnitude =
+            context.largestMagnitude ?? 0;
 
-        const isKingNode = magnitude > 0 && magnitude === largestMagnitude;
+        const isKingNode =
+            magnitude === largestMagnitude &&
+            magnitude > 0;
 
-        // Temporary placeholders until the Data Connector
-        // normalizes Skylit fields.
+        // Placeholder logic until the
+        // Structure Engine begins assigning
+        // structural roles.
 
         const isFloor = false;
-
         const isCeiling = false;
-
         const isGatekeeper = false;
 
         let type = "Unknown";
@@ -37,9 +42,13 @@ class NodeClassifier {
 
         return {
 
-            type,
+            // Preserve everything from MatrixParser
 
-            magnitude,
+            ...node,
+
+            // Add Hunter classifications
+
+            type,
 
             isKingNode,
 
