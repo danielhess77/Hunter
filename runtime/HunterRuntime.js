@@ -1,11 +1,11 @@
 /**
  * Hunter Runtime
- * Version: 0.5.0
+ * Version: 0.6.0
  *
  * Central analysis pipeline for Hunter.
  *
- * Every future engine should execute through
- * this runtime.
+ * Every future engine executes
+ * through this runtime.
  */
 
 import HunterMarketState from "./HunterMarketState.js";
@@ -18,6 +18,9 @@ import InstitutionalMapEngine
 
 import InstitutionalStructureEngine
     from "../engines/InstitutionalStructureEngine/InstitutionalStructureEngine.js";
+
+import HunterDecisionEngine
+    from "../engines/HunterDecisionEngine/HunterDecisionEngine.js";
 
 class HunterRuntime {
 
@@ -34,6 +37,9 @@ class HunterRuntime {
 
         this.structureEngine =
             new InstitutionalStructureEngine();
+
+        this.decisionEngine =
+            new HunterDecisionEngine();
 
     }
 
@@ -58,16 +64,22 @@ class HunterRuntime {
             );
 
         //--------------------------------------------------
-        // Build Institutional Structure
+        // Analyze Institutional Structure
         //--------------------------------------------------
 
         const structure =
             this.structureEngine.analyze(
-
                 nodes,
-
                 this.marketState.spot
+            );
 
+        //--------------------------------------------------
+        // Institutional Decision
+        //--------------------------------------------------
+
+        const decision =
+            this.decisionEngine.analyze(
+                structure
             );
 
         //--------------------------------------------------
@@ -80,7 +92,9 @@ class HunterRuntime {
 
             nodes,
 
-            structure
+            structure,
+
+            decision
 
         };
 

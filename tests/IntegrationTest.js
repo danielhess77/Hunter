@@ -95,3 +95,27 @@ structure.nodes
     });
 
 console.log("===========================");
+
+console.log("Nearby Nodes:",
+    result.structure.nearbyNodes.length);
+
+console.log("");
+console.log("===========================");
+console.log("DECISION");
+console.log("===========================");
+
+console.log("Grade:",
+    result.decision.grade);
+
+console.log("Score:",
+    result.decision.score);
+
+console.log("");
+
+console.log("Reasons:");
+
+result.decision.reasons.forEach(reason => {
+
+    console.log("•", reason);
+
+});
