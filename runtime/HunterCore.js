@@ -5,6 +5,7 @@
  * Central runtime for Hunter.
  */
 
+import HunterDataConnector from "../connectors/HunterDataConnector/HunterDataConnector.js";
 import EventBus from "./EventBus.js";
 import EngineRegistry from "./EngineRegistry.js";
 import HunterMarketState from "./HunterMarketState.js";
