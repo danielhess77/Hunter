@@ -23,11 +23,24 @@ class MatrixParser {
             const gammaRow = gamma[strikeIndex] || [];
             const vannaRow = vanna[strikeIndex] || [];
 
+            const gammaMagnitude = gammaRow.reduce(
+                (sum, value) => sum + Math.abs(value || 0),
+    0
+            );
+
+            const vannaMagnitude = vannaRow.reduce(
+                (sum, value) => sum + Math.abs(value || 0),
+                0
+            );
+
+const magnitude = gammaMagnitude + vannaMagnitude;
+
             nodes.push({
-                strike,
-                gamma: gammaRow,
-                vanna: vannaRow
-            });
+    strike,
+    gamma: gammaRow,
+    vanna: vannaRow,
+    magnitude
+});
 
         }
 
