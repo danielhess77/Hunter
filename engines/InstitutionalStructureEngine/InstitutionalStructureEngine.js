@@ -1,14 +1,14 @@
 import StructureStateAnalyzer from "./StructureStateAnalyzer.js";
+import StructureEvaluator from "./StructureEvaluator.js";
 
 /**
- * Institutional Structure Engine
- * Version: 1.3
+ * Hunter Institutional Structure Engine
+ * Version 1.4
  *
- * Aggregates institutional nodes and identifies
- * key structural reference points.
+ * Responsible for turning institutional nodes into
+ * a complete market structure snapshot.
  *
- * Important:
- * King Node is based on Gamma magnitude only.
+ * King Node = Largest Gamma Magnitude
  */
 
 class InstitutionalStructureEngine {
@@ -16,22 +16,36 @@ class InstitutionalStructureEngine {
     constructor() {
 
         this.stateAnalyzer = new StructureStateAnalyzer();
+        this.structureEvaluator = new StructureEvaluator();
 
     }
 
     analyze(nodes = [], currentPrice = null, previousNodes = []) {
 
+        //----------------------------------------------------
+        // Analyze node state
+        //----------------------------------------------------
+
         const stateNodes =
-            this.stateAnalyzer.analyze(nodes, currentPrice, previousNodes);
+            this.stateAnalyzer.analyze(
+                nodes,
+                currentPrice,
+                previousNodes
+            );
+
+        //----------------------------------------------------
+        // Nearest node
+        //----------------------------------------------------
 
         let nearestNode = null;
         let nearestDistance = Number.MAX_VALUE;
 
         if (currentPrice !== null) {
 
-            for (const node of stateNodes) {
+            stateNodes.forEach(node => {
 
-                const distance = Math.abs(node.strike - currentPrice);
+                const distance =
+                    Math.abs(node.strike - currentPrice);
 
                 if (distance < nearestDistance) {
 
@@ -40,7 +54,7 @@ class InstitutionalStructureEngine {
 
                 }
 
-            }
+            });
 
         }
 
@@ -49,68 +63,78 @@ class InstitutionalStructureEngine {
             Math.abs(node.strike - currentPrice) <= 2
         );
 
-        const kingGammaNode = stateNodes.reduce(
-            (largest, current) =>
-                !largest ||
-                current.gammaMagnitude > largest.gammaMagnitude
-                    ? current
-                    : largest,
-            null
-        );
+        //----------------------------------------------------
+        // King Nodes
+        //----------------------------------------------------
 
-        const kingVannaNode = stateNodes.reduce(
-            (largest, current) =>
-                !largest ||
-                current.vannaMagnitude > largest.vannaMagnitude
-                    ? current
-                    : largest,
-            null
-        );
+        const kingGammaNode =
+            [...stateNodes].sort(
+                (a, b) =>
+                    b.gammaMagnitude - a.gammaMagnitude
+            )[0] || null;
 
-        const strongestNodeAboveSpot = stateNodes
-    .filter(node =>
-        currentPrice !== null &&
-        node.strike > currentPrice
-    )
-    .reduce(
-        (largest, current) =>
-            !largest ||
-            current.gammaMagnitude > largest.gammaMagnitude
-                ? current
-                : largest,
-        null
-    );
+        const kingVannaNode =
+            [...stateNodes].sort(
+                (a, b) =>
+                    b.vannaMagnitude - a.vannaMagnitude
+            )[0] || null;
 
-        const strongestNodeBelowSpot = stateNodes
-    .filter(node =>
-        currentPrice !== null &&
-        node.strike < currentPrice
-    )
-    .reduce(
-        (largest, current) =>
-            !largest ||
-            current.gammaMagnitude > largest.gammaMagnitude
-                ? current
-                : largest,
-        null
-    );
+        //----------------------------------------------------
+        // Strongest Above / Below
+        //----------------------------------------------------
 
-        const floors = stateNodes.filter(node => node.isFloor);
+        const strongestNodeAboveSpot =
+            stateNodes
+                .filter(node =>
+                    currentPrice !== null &&
+                    node.strike > currentPrice
+                )
+                .sort(
+                    (a, b) =>
+                        b.gammaMagnitude - a.gammaMagnitude
+                )[0] || null;
 
-        const ceilings = stateNodes.filter(node => node.isCeiling);
+        const strongestNodeBelowSpot =
+            stateNodes
+                .filter(node =>
+                    currentPrice !== null &&
+                    node.strike < currentPrice
+                )
+                .sort(
+                    (a, b) =>
+                        b.gammaMagnitude - a.gammaMagnitude
+                )[0] || null;
 
-        const gatekeepers = stateNodes.filter(node => node.isGatekeeper);
+        //----------------------------------------------------
+        // Classified nodes
+        //----------------------------------------------------
+
+        const floors =
+            stateNodes.filter(node => node.isFloor);
+
+        const ceilings =
+            stateNodes.filter(node => node.isCeiling);
+
+        const gatekeepers =
+            stateNodes.filter(node => node.isGatekeeper);
 
         const nearestFloor =
-            floors.sort((a, b) => a.absDistance - b.absDistance)[0] || null;
+            [...floors]
+                .sort((a, b) => a.absDistance - b.absDistance)[0] || null;
 
         const nearestCeiling =
-            ceilings.sort((a, b) => a.absDistance - b.absDistance)[0] || null;
+            [...ceilings]
+                .sort((a, b) => a.absDistance - b.absDistance)[0] || null;
 
         const nearestGatekeeper =
-            gatekeepers.sort((a, b) => a.absDistance - b.absDistance)[0] || null;
+            [...gatekeepers]
+                .sort((a, b) => a.absDistance - b.absDistance)[0] || null;
 
-        return {
+        //----------------------------------------------------
+        // Build Structure Object
+        //----------------------------------------------------
+
+        const structure = {
 
             nodes: stateNodes,
 
@@ -143,6 +167,15 @@ class InstitutionalStructureEngine {
             nearbyNodes
 
         };
+
+        //----------------------------------------------------
+        // Evaluate Structure
+        //----------------------------------------------------
+
+        structure.evaluation =
+            this.structureEvaluator.evaluate(structure);
+
+        return structure;
 
     }
 
