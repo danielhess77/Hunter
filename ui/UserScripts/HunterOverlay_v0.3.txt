@@ -1,0 +1,150 @@
+// ==UserScript==
+// @name         Hunter Overlay v0.3
+// @namespace    hunter-sentinel-ai
+// @version      0.3
+// @description  Hunter floating overlay for Skylit Heatseeker data
+// @match        https://app.skylit.ai/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    "use strict";
+
+    const HUNTER = {
+        fetchCalls: [],
+        latestMatrix: null
+    };
+
+    const originalFetch = window.fetch;
+
+    window.fetch = async function (...args) {
+        const response = await originalFetch.apply(this, args);
+        const clone = response.clone();
+
+        try {
+            const url = typeof args[0] === "string" ? args[0] : args[0]?.url;
+
+            if (url && url.includes("/api/data")) {
+                const payload = await clone.json();
+
+                HUNTER.latestMatrix = payload;
+
+                updateHunterPanel(payload);
+            }
+        } catch (err) {
+            console.warn("Hunter fetch capture error:", err);
+        }
+
+        return response;
+    };
+
+    function createPanel() {
+        let panel = document.getElementById("hunter-overlay");
+
+        if (panel) return panel;
+
+        panel = document.createElement("div");
+        panel.id = "hunter-overlay";
+
+        panel.style.position = "fixed";
+        panel.style.right = "16px";
+        panel.style.bottom = "16px";
+        panel.style.zIndex = "999999";
+        panel.style.width = "280px";
+        panel.style.background = "rgba(10, 10, 10, 0.92)";
+        panel.style.color = "#ffffff";
+        panel.style.border = "1px solid #444";
+        panel.style.borderRadius = "10px";
+        panel.style.padding = "12px";
+        panel.style.fontFamily = "Arial, sans-serif";
+        panel.style.fontSize = "12px";
+        panel.style.boxShadow = "0 4px 18px rgba(0,0,0,0.45)";
+
+        panel.innerHTML = `
+            <div style="font-size:14px;font-weight:bold;margin-bottom:8px;">
+                HUNTER v0.3
+            </div>
+            <div id="hunter-content">
+                Waiting for Skylit data...
+            </div>
+        `;
+
+        document.body.appendChild(panel);
+
+        return panel;
+    }
+
+    function updateHunterPanel(matrix) {
+        const panel = createPanel();
+        const content = panel.querySelector("#hunter-content");
+
+        const symbol = matrix.symbol || "Unknown";
+        const spot = matrix.CurrentSpot ?? "N/A";
+        const strikes = matrix.Strikes || [];
+        const gamma = matrix.GammaValues || [];
+        const vanna = matrix.VannaValues || [];
+
+        const nodes = strikes.map((strike, index) => {
+            const gammaRow = gamma[index] || [];
+            const vannaRow = vanna[index] || [];
+
+            const gammaMagnitude = gammaRow.reduce(
+                (sum, value) => sum + Math.abs(value || 0),
+                0
+            );
+
+            const vannaMagnitude = vannaRow.reduce(
+                (sum, value) => sum + Math.abs(value || 0),
+                0
+            );
+
+            const magnitude = gammaMagnitude + vannaMagnitude;
+
+            return {
+                strike,
+                gammaMagnitude,
+                vannaMagnitude,
+                magnitude,
+                distance: typeof spot === "number" ? strike - spot : null,
+                absDistance: typeof spot === "number" ? Math.abs(strike - spot) : null
+            };
+        });
+
+        const topNodes = [...nodes]
+            .sort((a, b) => b.magnitude - a.magnitude)
+            .slice(0, 5);
+
+        const nearestNode = [...nodes]
+            .filter(node => node.absDistance !== null)
+            .sort((a, b) => a.absDistance - b.absDistance)[0];
+
+        const kingNode = topNodes[0];
+
+        content.innerHTML = `
+            <div><b>Symbol:</b> ${symbol}</div>
+            <div><b>Spot:</b> ${spot}</div>
+            <div><b>Nodes:</b> ${nodes.length}</div>
+            <hr style="border-color:#333;">
+            <div><b>King Node:</b> ${kingNode ? kingNode.strike : "None"}</div>
+            <div><b>Nearest Node:</b> ${nearestNode ? nearestNode.strike : "None"}</div>
+            <hr style="border-color:#333;">
+            <div><b>Top Institutional Nodes</b></div>
+            ${topNodes.map(node => `
+                <div style="display:flex;justify-content:space-between;margin-top:4px;">
+                    <span>${node.strike}</span>
+                    <span>${formatMagnitude(node.magnitude)}</span>
+                </div>
+            `).join("")}
+        `;
+    }
+
+    function formatMagnitude(value) {
+        if (value >= 1_000_000_000) return (value / 1_000_000_000).toFixed(2) + "B";
+        if (value >= 1_000_000) return (value / 1_000_000).toFixed(2) + "M";
+        if (value >= 1_000) return (value / 1_000).toFixed(2) + "K";
+        return String(Math.round(value || 0));
+    }
+
+    createPanel();
+
+})();
