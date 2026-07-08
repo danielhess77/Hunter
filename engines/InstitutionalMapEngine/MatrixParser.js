@@ -1,9 +1,9 @@
 /**
  * Matrix Parser
- * Version: 1.0
+ * Version: 1.1
  *
  * Converts a Heatseeker matrix into
- * institutional node objects.
+ * normalized institutional node objects.
  */
 
 class MatrixParser {
@@ -12,9 +12,9 @@ class MatrixParser {
 
         const nodes = [];
 
-        const strikes = marketState.strikes;
-        const gamma = marketState.gamma;
-        const vanna = marketState.vanna;
+        const strikes = marketState.strikes || [];
+        const gamma = marketState.gamma || [];
+        const vanna = marketState.vanna || [];
 
         for (let strikeIndex = 0; strikeIndex < strikes.length; strikeIndex++) {
 
@@ -25,7 +25,7 @@ class MatrixParser {
 
             const gammaMagnitude = gammaRow.reduce(
                 (sum, value) => sum + Math.abs(value || 0),
-    0
+                0
             );
 
             const vannaMagnitude = vannaRow.reduce(
@@ -33,14 +33,23 @@ class MatrixParser {
                 0
             );
 
-const magnitude = gammaMagnitude + vannaMagnitude;
+            const magnitude = gammaMagnitude + vannaMagnitude;
 
             nodes.push({
-    strike,
-    gamma: gammaRow,
-    vanna: vannaRow,
-    magnitude
-});
+
+                strike,
+
+                gamma: gammaRow,
+
+                vanna: vannaRow,
+
+                gammaMagnitude,
+
+                vannaMagnitude,
+
+                magnitude
+
+            });
 
         }
 

@@ -1,35 +1,27 @@
 /**
  * Structure State Analyzer
- * Version: 1.1
+ * Version: 1.0
  *
- * Determines institutional node state.
+ * Calculates node distance from spot.
  */
 
 class StructureStateAnalyzer {
 
-    analyze(currentNodes = [], previousNodes = []) {
+    analyze(nodes, spot) {
 
-        const previousMap = new Map(
-            previousNodes.map(node => [node.strike, node])
-        );
+        return nodes.map(node => ({
 
-        return currentNodes.map(node => {
+            ...node,
 
-            const previous = previousMap.get(node.strike);
+            distance: node.strike - spot,
 
-            return {
+            absDistance: Math.abs(node.strike - spot),
 
-                ...node,
+            aboveSpot: node.strike > spot,
 
-                previousMagnitude: previous?.magnitude ?? null,
+            belowSpot: node.strike < spot
 
-                state: "Unknown",
-
-                percentChange: null
-
-            };
-
-        });
+        }));
 
     }
 
