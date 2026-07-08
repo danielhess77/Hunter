@@ -14,30 +14,31 @@ class HunterDataConnector {
 
     connect(rawData, marketState) {
 
-        console.log("Connecting Skylit data...");
+    console.log("Connecting Skylit data...");
 
-        const matrixCall = this.findMatrixCall(rawData);
+    const matrixCall = this.findMatrixCall(rawData);
 
-        if (!matrixCall) {
-            throw new Error("No Heatseeker matrix payload found.");
-        }
-
-        marketState.loadMatrix(matrixCall.payload);
-
-        return marketState;
-
+    if (!matrixCall) {
+        throw new Error("No Heatseeker matrix payload found.");
     }
+
+    marketState.loadMatrix(matrixCall.payload);
+
+    return marketState;
+}
 
     findMatrixCall(rawData) {
 
-        if (!rawData || !Array.isArray(rawData.fetchCalls)) {
-            return null;
-        }
-
-        return rawData.fetchCalls.find(call => call.type === "matrix") || null;
-
+    if (!rawData.fetchCalls) {
+        return null;
     }
+
+    return rawData.fetchCalls.find(call =>
+        call.type === "matrix" &&
+        call.payload
+    );
 
 }
 
+}
 export default HunterDataConnector;
