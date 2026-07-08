@@ -67,6 +67,34 @@ class InstitutionalStructureEngine {
             null
         );
 
+        const strongestNodeAboveSpot = stateNodes
+    .filter(node =>
+        currentPrice !== null &&
+        node.strike > currentPrice
+    )
+    .reduce(
+        (largest, current) =>
+            !largest ||
+            current.gammaMagnitude > largest.gammaMagnitude
+                ? current
+                : largest,
+        null
+    );
+
+        const strongestNodeBelowSpot = stateNodes
+    .filter(node =>
+        currentPrice !== null &&
+        node.strike < currentPrice
+    )
+    .reduce(
+        (largest, current) =>
+            !largest ||
+            current.gammaMagnitude > largest.gammaMagnitude
+                ? current
+                : largest,
+        null
+    );
+
         const floors = stateNodes.filter(node => node.isFloor);
 
         const ceilings = stateNodes.filter(node => node.isCeiling);
@@ -91,6 +119,10 @@ class InstitutionalStructureEngine {
             kingGammaNode,
 
             kingVannaNode,
+
+            strongestNodeAboveSpot,
+
+            strongestNodeBelowSpot,
 
             nearestFloor,
 

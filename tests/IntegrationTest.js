@@ -43,32 +43,45 @@ const structure = structureEngine.analyze(
     marketState.spot
 );
 
-console.log("=========================");
+console.log("===========================");
 console.log("HUNTER REPORT");
-console.log("=========================");
+console.log("===========================");
 
 console.log("Symbol:", marketState.symbol);
 console.log("Spot:", marketState.spot);
-console.log("Nodes Parsed:", nodes.length);
 
-console.log(
-    "King Node:",
-    structure.kingNode?.strike ?? "None"
-);
+console.log("");
 
-console.log(
-    "Nearest Node:",
-    structure.nearestNode?.strike ?? "None"
-);
+console.log("King Gamma:", structure.kingNode?.strike);
 
-console.log(
-    "Distance:",
-    structure.nearestDistance
-);
+console.log("King Gamma Magnitude:",
+    structure.kingNode?.gammaMagnitude);
 
-console.log(
-    "Nearby Nodes:",
-    structure.nearbyNodes.length
-);
+console.log("");
 
-console.log("=========================");
+console.log("Strongest Above:",
+    structure.strongestNodeAboveSpot?.strike);
+
+console.log("Gamma:",
+    structure.strongestNodeAboveSpot?.gammaMagnitude);
+
+console.log("");
+
+console.log("Strongest Below:",
+    structure.strongestNodeBelowSpot?.strike);
+
+console.log("Gamma:",
+    structure.strongestNodeBelowSpot?.gammaMagnitude);
+
+console.log("");
+
+console.log("Nearest:",
+    structure.nearestNode?.strike);
+
+console.log("Distance:",
+    structure.nearestDistance);
+
+console.log("");
+
+console.log("Nearby Nodes:",
+    structure.nearbyNodes.length);

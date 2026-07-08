@@ -1,0 +1,178 @@
+// ==UserScript==
+// @name         Hunter Overlay v0.4 Live Validation
+// @namespace    hunter-sentinel-ai
+// @version      0.4
+// @description  Live Hunter validation panel for Skylit Heatseeker Gamma nodes
+// @match        https://app.skylit.ai/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    "use strict";
+
+    const originalFetch = window.fetch;
+
+    window.fetch = async function (...args) {
+        const response = await originalFetch.apply(this, args);
+        const clone = response.clone();
+
+        try {
+            const url = typeof args[0] === "string" ? args[0] : args[0]?.url;
+
+            if (url && url.includes("/api/data")) {
+                const matrix = await clone.json();
+                updateHunterPanel(matrix);
+            }
+        } catch (err) {
+            console.warn("Hunter Live Validation error:", err);
+        }
+
+        return response;
+    };
+
+    function createPanel() {
+        let panel = document.getElementById("hunter-live-validation");
+
+        if (panel) return panel;
+
+        panel = document.createElement("div");
+        panel.id = "hunter-live-validation";
+
+        panel.style.position = "fixed";
+        panel.style.right = "16px";
+        panel.style.bottom = "16px";
+        panel.style.zIndex = "999999";
+        panel.style.width = "330px";
+        panel.style.maxHeight = "70vh";
+        panel.style.overflowY = "auto";
+        panel.style.background = "rgba(8, 8, 8, 0.94)";
+        panel.style.color = "#fff";
+        panel.style.border = "1px solid #555";
+        panel.style.borderRadius = "10px";
+        panel.style.padding = "12px";
+        panel.style.fontFamily = "Arial, sans-serif";
+        panel.style.fontSize = "12px";
+        panel.style.boxShadow = "0 4px 18px rgba(0,0,0,0.45)";
+
+        panel.innerHTML = `
+            <div style="font-size:14px;font-weight:bold;margin-bottom:8px;">
+                HUNTER v0.4 LIVE VALIDATION
+            </div>
+            <div id="hunter-live-content">
+                Waiting for live Skylit data...
+            </div>
+        `;
+
+        document.body.appendChild(panel);
+        return panel;
+    }
+
+    function updateHunterPanel(matrix) {
+        const panel = createPanel();
+        const content = panel.querySelector("#hunter-live-content");
+
+        const symbol = matrix.symbol || "Unknown";
+        const spot = matrix.CurrentSpot ?? null;
+        const strikes = matrix.Strikes || [];
+        const gamma = matrix.GammaValues || [];
+        const vanna = matrix.VannaValues || [];
+
+        const nodes = strikes.map((strike, index) => {
+            const gammaRow = gamma[index] || [];
+            const vannaRow = vanna[index] || [];
+
+            const gammaMagnitude = gammaRow.reduce(
+                (sum, value) => sum + Math.abs(value || 0),
+                0
+            );
+
+            const vannaMagnitude = vannaRow.reduce(
+                (sum, value) => sum + Math.abs(value || 0),
+                0
+            );
+
+            return {
+                strike,
+                gammaMagnitude,
+                vannaMagnitude,
+                distance: typeof spot === "number" ? strike - spot : null,
+                absDistance: typeof spot === "number" ? Math.abs(strike - spot) : null
+            };
+        });
+
+        const topGammaNodes = [...nodes]
+            .sort((a, b) => b.gammaMagnitude - a.gammaMagnitude)
+            .slice(0, 10);
+
+        const kingGammaNode = topGammaNodes[0] || null;
+
+        const strongestAbove = [...nodes]
+            .filter(node => typeof spot === "number" && node.strike > spot)
+            .sort((a, b) => b.gammaMagnitude - a.gammaMagnitude)[0] || null;
+
+        const strongestBelow = [...nodes]
+            .filter(node => typeof spot === "number" && node.strike < spot)
+            .sort((a, b) => b.gammaMagnitude - a.gammaMagnitude)[0] || null;
+
+        const nearestNode = [...nodes]
+            .filter(node => node.absDistance !== null)
+            .sort((a, b) => a.absDistance - b.absDistance)[0] || null;
+
+        const nearbyNodes = [...nodes]
+            .filter(node => node.absDistance !== null && node.absDistance <= 2)
+            .sort((a, b) => a.absDistance - b.absDistance);
+
+        content.innerHTML = `
+            <div><b>Symbol:</b> ${symbol}</div>
+            <div><b>Spot:</b> ${spot ?? "N/A"}</div>
+            <div><b>Nodes:</b> ${nodes.length}</div>
+
+            <hr style="border-color:#333;">
+
+            <div><b>King Gamma:</b> ${kingGammaNode ? kingGammaNode.strike : "None"}</div>
+            <div><b>Gamma Mag:</b> ${kingGammaNode ? formatMagnitude(kingGammaNode.gammaMagnitude) : "N/A"}</div>
+
+            <div style="margin-top:6px;"><b>Strongest Above:</b> ${strongestAbove ? strongestAbove.strike : "None"}</div>
+            <div><b>Gamma Mag:</b> ${strongestAbove ? formatMagnitude(strongestAbove.gammaMagnitude) : "N/A"}</div>
+
+            <div style="margin-top:6px;"><b>Strongest Below:</b> ${strongestBelow ? strongestBelow.strike : "None"}</div>
+            <div><b>Gamma Mag:</b> ${strongestBelow ? formatMagnitude(strongestBelow.gammaMagnitude) : "N/A"}</div>
+
+            <div style="margin-top:6px;"><b>Nearest Node:</b> ${nearestNode ? nearestNode.strike : "None"}</div>
+            <div><b>Distance:</b> ${nearestNode ? nearestNode.absDistance.toFixed(3) : "N/A"}</div>
+
+            <hr style="border-color:#333;">
+
+            <div><b>Nearby Nodes ±2</b></div>
+            ${nearbyNodes.length
+                ? nearbyNodes.map(node => `
+                    <div style="display:flex;justify-content:space-between;margin-top:3px;">
+                        <span>${node.strike}</span>
+                        <span>${formatMagnitude(node.gammaMagnitude)}</span>
+                    </div>
+                `).join("")
+                : `<div>None</div>`
+            }
+
+            <hr style="border-color:#333;">
+
+            <div><b>Top 10 Gamma Nodes</b></div>
+            ${topGammaNodes.map((node, i) => `
+                <div style="display:flex;justify-content:space-between;margin-top:4px;">
+                    <span>${i + 1}. ${node.strike}</span>
+                    <span>${formatMagnitude(node.gammaMagnitude)}</span>
+                </div>
+            `).join("")}
+        `;
+    }
+
+    function formatMagnitude(value) {
+        if (value >= 1_000_000_000) return (value / 1_000_000_000).toFixed(2) + "B";
+        if (value >= 1_000_000) return (value / 1_000_000).toFixed(2) + "M";
+        if (value >= 1_000) return (value / 1_000).toFixed(2) + "K";
+        return String(Math.round(value || 0));
+    }
+
+    createPanel();
+
+})();
