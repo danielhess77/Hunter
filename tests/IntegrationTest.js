@@ -11,7 +11,6 @@ import HunterMarketState from "../runtime/HunterMarketState.js";
 import HunterDataConnector from "../connectors/HunterDataConnector/HunterDataConnector.js";
 import InstitutionalMapEngine from "../engines/InstitutionalMapEngine/InstitutionalMapEngine.js";
 import InstitutionalStructureEngine from "../engines/InstitutionalStructureEngine/InstitutionalStructureEngine.js";
-import fs from "fs";
 import path from "path";
 
 const jsonPath = path.resolve(
@@ -31,3 +30,40 @@ const mapEngine = new InstitutionalMapEngine();
 const structureEngine = new InstitutionalStructureEngine();
 
 connector.connect(rawData, marketState);
+
+const nodes = mapEngine.analyze(marketState);
+
+const structure = structureEngine.analyze(
+    nodes,
+    marketState.spot
+);
+
+console.log("=========================");
+console.log("HUNTER REPORT");
+console.log("=========================");
+
+console.log("Symbol:", marketState.symbol);
+console.log("Spot:", marketState.spot);
+console.log("Nodes Parsed:", nodes.length);
+
+console.log(
+    "King Node:",
+    structure.kingNode?.strike ?? "None"
+);
+
+console.log(
+    "Nearest Node:",
+    structure.nearestNode?.strike ?? "None"
+);
+
+console.log(
+    "Distance:",
+    structure.nearestDistance
+);
+
+console.log(
+    "Nearby Nodes:",
+    structure.nearbyNodes.length
+);
+
+console.log("=========================");
