@@ -2,7 +2,8 @@
  * Hunter Data Connector
  * Version: 1.1
  *
- * Reads raw Skylit JSON and extracts the institutional matrix.
+ * Reads raw Skylit JSON and converts it into
+ * Hunter's internal MarketState object.
  */
 
 class HunterDataConnector {
@@ -11,7 +12,7 @@ class HunterDataConnector {
         this.version = "1.1";
     }
 
-    connect(rawData) {
+    connect(rawData, marketState) {
 
         console.log("Connecting Skylit data...");
 
@@ -21,7 +22,9 @@ class HunterDataConnector {
             throw new Error("No Heatseeker matrix payload found.");
         }
 
-        return matrixCall.payload;
+        marketState.loadMatrix(matrixCall.payload);
+
+        return marketState;
 
     }
 
