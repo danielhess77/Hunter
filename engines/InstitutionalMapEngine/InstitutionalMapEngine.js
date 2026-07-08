@@ -6,6 +6,7 @@
  */
 
 import NodeClassifier from "./NodeClassifier.js";
+import MatrixParser from "./MatrixParser.js";
 
 class InstitutionalMapEngine {
 
@@ -13,15 +14,19 @@ class InstitutionalMapEngine {
 
         this.name = "Institutional Map Engine";
 
+        this.matrixParser = new MatrixParser();
+
         this.nodeClassifier = new NodeClassifier();
 
     }
 
-    analyze(nodes = []) {
+    analyze(marketState) {
 
+        const nodes = this.matrixParser.parse(marketState);
+        
         const largestMagnitude = Math.max(
             ...nodes.map(node =>
-                Math.abs(node.magnitude || node.net || node.value || 0)
+                Math.abs(node.magnitude)
             ),
             0
         );
