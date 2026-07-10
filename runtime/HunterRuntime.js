@@ -1,15 +1,11 @@
 /**
  * Hunter Runtime
- * Version: 0.6.0
+ * Version: 0.7.0
  *
  * Central analysis pipeline for Hunter.
- *
- * Every future engine executes
- * through this runtime.
  */
 
 import HunterMarketState from "./HunterMarketState.js";
-
 import HunterMemory from "./HunterMemory.js";
 
 import HunterDataConnector
@@ -31,30 +27,29 @@ class HunterRuntime {
 
     constructor() {
 
-        this.dataConnector =
-            new HunterDataConnector();
+        this.dataConnector = new HunterDataConnector();
 
-        this.marketState =
-            new HunterMarketState();
+        this.marketState = new HunterMarketState();
 
-        this.memory =
-            new HunterMemory();
+        this.memory = new HunterMemory();
 
-        this.mapEngine =
-            new InstitutionalMapEngine();
+        this.mapEngine = new InstitutionalMapEngine();
 
-        this.structureEngine =
-            new InstitutionalStructureEngine();
+        this.structureEngine = new InstitutionalStructureEngine();
 
-        this.patternEngine =
-            new HunterPatternEngine();
+        this.patternEngine = new HunterPatternEngine();
 
-        this.decisionEngine =
-            new HunterDecisionEngine();
+        this.decisionEngine = new HunterDecisionEngine();
 
     }
 
     analyze(rawData) {
+
+        //--------------------------------------------------
+        // Capture previous snapshot BEFORE updating memory
+        //--------------------------------------------------
+
+        const previousSnapshot = this.memory.getCurrent();
 
         //--------------------------------------------------
         // Build Market State
@@ -85,20 +80,10 @@ class HunterRuntime {
             );
 
         //--------------------------------------------------
-        // Update Runtime Memory
+        // Make previous snapshot available to Pattern Engine
         //--------------------------------------------------
 
-        this.memory.update({
-
-        timestamp: Date.now(),
-
-        symbol: this.marketState.symbol,
-
-        spot: this.marketState.spot,
-
-        structure
-
-        });
+        this.marketState.previousSnapshot = previousSnapshot;
 
         //--------------------------------------------------
         // Analyze Institutional Patterns
@@ -108,10 +93,10 @@ class HunterRuntime {
             this.patternEngine.analyze(
                 this.marketState,
                 structure
-    );
+            );
 
         //--------------------------------------------------
-        // Institutional Decision
+        // Decision Engine
         //--------------------------------------------------
 
         const decision =
@@ -120,24 +105,40 @@ class HunterRuntime {
             );
 
         //--------------------------------------------------
-        // Runtime Result
+        // NOW update memory
+        //--------------------------------------------------
+
+        this.memory.update({
+
+            timestamp: Date.now(),
+
+            symbol: this.marketState.symbol,
+
+            spot: this.marketState.spot,
+
+            structure
+
+        });
+
+        //--------------------------------------------------
+        // Return
         //--------------------------------------------------
 
         return {
 
-        marketState: this.marketState,
+            marketState: this.marketState,
 
-        memory: this.memory,
+            memory: this.memory,
 
-        nodes,
+            nodes,
 
-        structure,
+            structure,
 
-        patterns,
+            patterns,
 
-        decision
+            decision
 
-};
+        };
 
     }
 
