@@ -12,6 +12,7 @@
  */
 
 import NodeDeflectionDetector from "./NodeDeflectionDetector.js";
+import ReverseRugDetector from "./ReverseRugDetector.js";
 
 class HunterPatternEngine {
 
@@ -21,6 +22,9 @@ class HunterPatternEngine {
 
         this.nodeDeflectionDetector =
             new NodeDeflectionDetector();
+
+        this.reverseRugDetector =
+            new ReverseRugDetector();
 
         this.patternNames = [
             "Node Deflection",
@@ -80,6 +84,12 @@ class HunterPatternEngine {
                 previousSnapshot
             );
 
+        const reverseRug =
+            this.reverseRugDetector.analyze(
+                currentSnapshot,
+                previousSnapshot
+            );
+
         const locationEligible =
             primaryNode !== null;
 
@@ -129,39 +139,58 @@ class HunterPatternEngine {
         );
 
         //---------------------------------------------------
-        // Candidate Pattern
+        // Candidate Patterns
         //---------------------------------------------------
 
-        const candidatePatterns = [
+        const candidatePatterns = [];
 
-    {
+        if (nodeDeflection.stage !== "WAITING_FOR_HISTORY") {
 
-        name: "Node Deflection",
+        candidatePatterns.push({
 
-        stage:
-            nodeDeflection.stage,
+            name: "Node Deflection",
 
-        confidence:
-            nodeDeflection.confidence,
+            stage: nodeDeflection.stage,
 
-        direction:
-            nodeDeflection.direction,
+            confidence: nodeDeflection.confidence,
 
-        strike:
-            primaryNode.strike,
+            direction: nodeDeflection.direction,
 
-        nodeRole:
-            primaryNode.role,
+            strike: primaryNode.strike,
 
-        distanceFromSpot:
-            primaryNode.distanceFromSpot,
+            nodeRole: primaryNode.role,
 
-        reason:
-            nodeDeflection.reason
+            distanceFromSpot: primaryNode.distanceFromSpot,
 
-    }
+            reason: nodeDeflection.reason
 
-];
+    });
+
+}
+
+        if (reverseRug.stage !== "WAITING_FOR_HISTORY") {
+
+        candidatePatterns.push({
+
+            name: "Reverse Rug",
+
+            stage: reverseRug.stage,
+
+            confidence: reverseRug.confidence,
+
+            direction: reverseRug.direction,
+
+            strike: primaryNode.strike,
+
+            nodeRole: primaryNode.role,
+
+            distanceFromSpot: primaryNode.distanceFromSpot,
+
+            reason: reverseRug.reason
+
+    });
+
+}
 
         //---------------------------------------------------
         // Confirmed Pattern

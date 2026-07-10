@@ -81,19 +81,17 @@ class HunterRuntime {
 
         const structure =
             this.structureEngine.analyze(
-                nodes,
-                this.marketState.spot
-            );
+            nodes,
+            this.marketState.spot,
+            previousSnapshot?.nodes || []
+    );
 
         //--------------------------------------------------
         // Analyze Institutional Evolution
         //--------------------------------------------------
 
         const evolution =
-            this.evolutionEngine.analyze(
-                nodes,
-                previousSnapshot?.nodes
-            );
+            structure.evolution;
 
         //--------------------------------------------------
         // Make history available to Pattern Engine
