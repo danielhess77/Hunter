@@ -215,6 +215,15 @@ result.patterns.candidatePatterns.forEach(pattern => {
 });
 
 console.log("");
+console.log("===========================");
+console.log("EVOLUTION ENGINE");
+console.log("===========================");
+
+console.log(result.evolution);
+
+console.log("");
+
+console.log("");
 console.log("==========================");
 console.log("MEMORY");
 console.log("==========================");

@@ -1,6 +1,6 @@
 /**
  * Hunter Runtime
- * Version: 0.7.0
+ * Version: 0.8.0
  *
  * Central analysis pipeline for Hunter.
  */
@@ -16,6 +16,9 @@ import InstitutionalMapEngine
 
 import InstitutionalStructureEngine
     from "../engines/InstitutionalStructureEngine/InstitutionalStructureEngine.js";
+
+import InstitutionalEvolutionEngine
+    from "../engines/InstitutionalEvolutionEngine/InstitutionalEvolutionEngine.js";
 
 import HunterDecisionEngine
     from "../engines/HunterDecisionEngine/HunterDecisionEngine.js";
@@ -37,6 +40,8 @@ class HunterRuntime {
 
         this.structureEngine = new InstitutionalStructureEngine();
 
+        this.evolutionEngine = new InstitutionalEvolutionEngine();
+
         this.patternEngine = new HunterPatternEngine();
 
         this.decisionEngine = new HunterDecisionEngine();
@@ -46,10 +51,11 @@ class HunterRuntime {
     analyze(rawData) {
 
         //--------------------------------------------------
-        // Capture previous snapshot BEFORE updating memory
+        // Capture previous snapshot BEFORE anything changes
         //--------------------------------------------------
 
-        const previousSnapshot = this.memory.getCurrent();
+        const previousSnapshot =
+            this.memory.getCurrent();
 
         //--------------------------------------------------
         // Build Market State
@@ -80,13 +86,24 @@ class HunterRuntime {
             );
 
         //--------------------------------------------------
-        // Make previous snapshot available to Pattern Engine
+        // Analyze Institutional Evolution
         //--------------------------------------------------
 
-        this.marketState.previousSnapshot = previousSnapshot;
+        const evolution =
+            this.evolutionEngine.analyze(
+                nodes,
+                previousSnapshot?.nodes
+            );
 
         //--------------------------------------------------
-        // Analyze Institutional Patterns
+        // Make history available to Pattern Engine
+        //--------------------------------------------------
+
+        this.marketState.previousSnapshot =
+            previousSnapshot;
+
+        //--------------------------------------------------
+        // Analyze Patterns
         //--------------------------------------------------
 
         const patterns =
@@ -116,12 +133,14 @@ class HunterRuntime {
 
             spot: this.marketState.spot,
 
+            nodes,
+
             structure
 
         });
 
         //--------------------------------------------------
-        // Return
+        // Return Result
         //--------------------------------------------------
 
         return {
@@ -133,6 +152,8 @@ class HunterRuntime {
             nodes,
 
             structure,
+
+            evolution,
 
             patterns,
 
