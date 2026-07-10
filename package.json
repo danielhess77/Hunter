@@ -1,0 +1,11 @@
+{
+  "name": "hunter-runtime",
+  "version": "0.6.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build/build.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

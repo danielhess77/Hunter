@@ -1,0 +1,1096 @@
+// ==UserScript==
+// @name         Hunter Overlay v0.6 Runtime Rewrite
+// @namespace    hunter-sentinel-ai
+// @version      0.6.0
+// @description  Live Hunter Runtime, Pattern Engine, Decision Engine, and overlay for Skylit Heatseeker
+// @match        https://app.skylit.ai/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    "use strict";
+
+    /**
+     * Hunter Overlay v0.6
+     *
+     * PART 1
+     *
+     * Contains:
+     * - Runtime configuration
+     * - Live-history cache
+     * - Fetch interception
+     * - Payload filtering
+     * - HunterRuntime orchestration
+     *
+     * The remaining engine and UI functions are added
+     * in Parts 2 through 6.
+     */
+
+    //------------------------------------------------------
+    // Configuration
+    //------------------------------------------------------
+
+    const HUNTER_CONFIG = {
+
+        version: "0.6.0",
+
+        panelId: "hunter-overlay-v06",
+
+        contentId: "hunter-v06-content",
+
+        /**
+         * Hunter's institutional-location gate.
+         *
+         * Price must be within two strikes of a major node
+         * before the Pattern Engine may evaluate a setup.
+         */
+        majorNodeDistance: 2,
+
+        /**
+         * Maximum number of snapshots retained per symbol.
+         *
+         * This history will later support:
+         * - node growth
+         * - node weakening
+         * - node migration
+         * - price reaction
+         * - dynamic pattern detection
+         */
+        maxSnapshotsPerSymbol: 120,
+
+        /**
+         * Prevent duplicate rendering when Skylit returns
+         * the same matrix payload repeatedly.
+         */
+        duplicateWindowMs: 250,
+
+        /**
+         * Candidate URL fragments used to identify
+         * Heatseeker matrix responses.
+         */
+        matrixUrlFragments: [
+            "/api/data",
+            "heatseeker",
+            "matrix"
+        ]
+
+    };
+
+    //------------------------------------------------------
+    // Runtime State
+    //------------------------------------------------------
+
+    const HUNTER_STATE = {
+
+        runtime: null,
+
+        latestResult: null,
+
+        latestPayload: null,
+
+        latestPayloadTime: 0,
+
+        latestPayloadSignature: null,
+
+        activeSymbol: null,
+
+        connected: false,
+
+        processing: false,
+
+        updateCount: 0,
+
+        lastError: null,
+
+        /**
+         * Map structure:
+         *
+         * symbolHistory.get("SPY") = [
+         *     {
+         *         timestamp,
+         *         spot,
+         *         kingGammaStrike,
+         *         kingVannaStrike,
+         *         nodes
+         *     }
+         * ]
+         */
+        symbolHistory: new Map()
+
+    };
+
+    //------------------------------------------------------
+    // Hunter Runtime
+    //------------------------------------------------------
+
+    class HunterRuntime {
+
+        constructor() {
+
+            this.version = HUNTER_CONFIG.version;
+
+        }
+
+        /**
+         * Central entry point for all Hunter analysis.
+         *
+         * Every live Heatseeker payload flows through
+         * this method.
+         */
+        analyze(rawData) {
+
+            //--------------------------------------------------
+            // Build normalized market state
+            //--------------------------------------------------
+
+            const marketState =
+                buildMarketState(rawData);
+
+            //--------------------------------------------------
+            // Parse institutional nodes
+            //--------------------------------------------------
+
+            const nodes =
+                buildInstitutionalNodes(marketState);
+
+            //--------------------------------------------------
+            // Build institutional structure
+            //--------------------------------------------------
+
+            const structure =
+                buildInstitutionalStructure(
+                    nodes,
+                    marketState.spot
+                );
+
+            //--------------------------------------------------
+            // Retrieve previous snapshots
+            //--------------------------------------------------
+
+            const history =
+                getSymbolHistory(
+                    marketState.symbol
+                );
+
+            //--------------------------------------------------
+            // Evaluate institutional patterns
+            //--------------------------------------------------
+
+            const patterns =
+                analyzePatterns(
+                    marketState,
+                    structure,
+                    history
+                );
+
+            //--------------------------------------------------
+            // Produce current Hunter decision
+            //--------------------------------------------------
+
+            const decision =
+                analyzeDecision(
+                    marketState,
+                    structure,
+                    patterns
+                );
+
+            //--------------------------------------------------
+            // Build complete runtime output
+            //--------------------------------------------------
+
+            const result = {
+
+                runtimeVersion: this.version,
+
+                generatedAt:
+                    new Date().toISOString(),
+
+                marketState,
+
+                nodes,
+
+                structure,
+
+                patterns,
+
+                decision,
+
+                history: {
+
+                    symbol:
+                        marketState.symbol,
+
+                    priorSnapshotCount:
+                        history.length
+
+                }
+
+            };
+
+            //--------------------------------------------------
+            // Save snapshot for future comparisons
+            //--------------------------------------------------
+
+            recordRuntimeSnapshot(result);
+
+            return result;
+
+        }
+
+    }
+
+    //------------------------------------------------------
+    // Runtime Initialization
+    //------------------------------------------------------
+
+    HUNTER_STATE.runtime =
+        new HunterRuntime();
+
+    //------------------------------------------------------
+    // Fetch Interception
+    //------------------------------------------------------
+
+    const originalFetch =
+        window.fetch.bind(window);
+
+    window.fetch = async function (...args) {
+
+        const response =
+            await originalFetch(...args);
+
+        const responseClone =
+            response.clone();
+
+        try {
+
+            const requestUrl =
+                getRequestUrl(args[0]);
+
+            if (
+                shouldInspectResponse(
+                    requestUrl,
+                    responseClone
+                )
+            ) {
+
+                processPossibleHunterPayload(
+                    responseClone,
+                    requestUrl
+                );
+
+            }
+
+        } catch (error) {
+
+            handleHunterError(
+                "Fetch interception failed",
+                error
+            );
+
+        }
+
+        return response;
+
+    };
+
+    //------------------------------------------------------
+    // Payload Processing
+    //------------------------------------------------------
+
+    async function processPossibleHunterPayload(
+        responseClone,
+        requestUrl
+    ) {
+
+        if (HUNTER_STATE.processing) {
+            return;
+        }
+
+        try {
+
+            const contentType =
+                responseClone.headers
+                    ?.get("content-type") || "";
+
+            if (
+                contentType &&
+                !contentType.includes("json")
+            ) {
+                return;
+            }
+
+            const rawData =
+                await responseClone.json();
+
+            const matrix =
+                findHeatseekerMatrix(rawData);
+
+            if (!matrix) {
+                return;
+            }
+
+            const signature =
+                createPayloadSignature(matrix);
+
+            const now =
+                Date.now();
+
+            const isRecentDuplicate =
+                signature ===
+                    HUNTER_STATE.latestPayloadSignature &&
+                now -
+                    HUNTER_STATE.latestPayloadTime <
+                    HUNTER_CONFIG.duplicateWindowMs;
+
+            if (isRecentDuplicate) {
+                return;
+            }
+
+            HUNTER_STATE.processing = true;
+
+            HUNTER_STATE.latestPayload =
+                matrix;
+
+            HUNTER_STATE.latestPayloadSignature =
+                signature;
+
+            HUNTER_STATE.latestPayloadTime =
+                now;
+
+            const result =
+                HUNTER_STATE.runtime.analyze(
+                    matrix
+                );
+
+            HUNTER_STATE.latestResult =
+                result;
+
+            HUNTER_STATE.activeSymbol =
+                result.marketState.symbol;
+
+            HUNTER_STATE.connected =
+                true;
+
+            HUNTER_STATE.updateCount += 1;
+
+            HUNTER_STATE.lastError =
+                null;
+
+            renderHunterOverlay(result);
+
+        } catch (error) {
+
+            handleHunterError(
+                `Unable to process ${requestUrl || "Skylit response"}`,
+                error
+            );
+
+        } finally {
+
+            HUNTER_STATE.processing =
+                false;
+
+        }
+
+    }
+
+    //------------------------------------------------------
+    // Response Identification
+    //------------------------------------------------------
+
+    function shouldInspectResponse(
+        requestUrl,
+        response
+    ) {
+
+        if (!response || !response.ok) {
+            return false;
+        }
+
+        if (!requestUrl) {
+
+            const contentType =
+                response.headers
+                    ?.get("content-type") || "";
+
+            return contentType.includes("json");
+
+        }
+
+        const normalizedUrl =
+            requestUrl.toLowerCase();
+
+        return HUNTER_CONFIG.matrixUrlFragments
+            .some(fragment =>
+                normalizedUrl.includes(
+                    fragment.toLowerCase()
+                )
+            );
+
+    }
+
+    function getRequestUrl(requestInput) {
+
+        if (typeof requestInput === "string") {
+            return requestInput;
+        }
+
+        if (
+            requestInput &&
+            typeof requestInput.url === "string"
+        ) {
+            return requestInput.url;
+        }
+
+        return "";
+
+    }
+
+    //------------------------------------------------------
+    // Matrix Discovery
+    //------------------------------------------------------
+
+    function findHeatseekerMatrix(rawData) {
+
+        if (!rawData || typeof rawData !== "object") {
+            return null;
+        }
+
+        if (isHeatseekerMatrix(rawData)) {
+            return rawData;
+        }
+
+        if (
+            rawData.data &&
+            isHeatseekerMatrix(rawData.data)
+        ) {
+            return rawData.data;
+        }
+
+        if (
+            rawData.payload &&
+            isHeatseekerMatrix(rawData.payload)
+        ) {
+            return rawData.payload;
+        }
+
+        if (
+            rawData.result &&
+            isHeatseekerMatrix(rawData.result)
+        ) {
+            return rawData.result;
+        }
+
+        const queue = [rawData];
+
+        const visited =
+            new Set();
+
+        while (queue.length) {
+
+            const current =
+                queue.shift();
+
+            if (
+                !current ||
+                typeof current !== "object" ||
+                visited.has(current)
+            ) {
+                continue;
+            }
+
+            visited.add(current);
+
+            if (isHeatseekerMatrix(current)) {
+                return current;
+            }
+
+            for (
+                const value of Object.values(current)
+            ) {
+
+                if (
+                    value &&
+                    typeof value === "object"
+                ) {
+                    queue.push(value);
+                }
+
+            }
+
+        }
+
+        return null;
+
+    }
+
+    function isHeatseekerMatrix(candidate) {
+
+        if (
+            !candidate ||
+            typeof candidate !== "object"
+        ) {
+            return false;
+        }
+
+        const strikes =
+            candidate.Strikes ||
+            candidate.strikes;
+
+        const gamma =
+            candidate.GammaValues ||
+            candidate.gamma;
+
+        return (
+            Array.isArray(strikes) &&
+            Array.isArray(gamma) &&
+            strikes.length > 0
+        );
+
+    }
+
+    //------------------------------------------------------
+    // Duplicate Detection
+    //------------------------------------------------------
+
+    function createPayloadSignature(matrix) {
+
+        const symbol =
+            matrix.symbol ||
+            matrix.Symbol ||
+            "Unknown";
+
+        const spot =
+            matrix.CurrentSpot ??
+            matrix.currentSpot ??
+            matrix.spot ??
+            "N/A";
+
+        const updated =
+            matrix.LastUpdated ||
+            matrix.lastUpdated ||
+            matrix.timestamp ||
+            "";
+
+        const strikes =
+            matrix.Strikes ||
+            matrix.strikes ||
+            [];
+
+        const gamma =
+            matrix.GammaValues ||
+            matrix.gamma ||
+            [];
+
+        const firstStrike =
+            strikes[0] ?? "";
+
+        const lastStrike =
+            strikes[strikes.length - 1] ?? "";
+
+        const gammaRowCount =
+            gamma.length;
+
+        return [
+            symbol,
+            spot,
+            updated,
+            strikes.length,
+            firstStrike,
+            lastStrike,
+            gammaRowCount
+        ].join("|");
+
+    }
+
+    //------------------------------------------------------
+    // History Access
+    //------------------------------------------------------
+
+    function getSymbolHistory(symbol) {
+
+        if (!symbol) {
+            return [];
+        }
+
+        return (
+            HUNTER_STATE.symbolHistory.get(symbol) ||
+            []
+        );
+
+    }
+
+    function recordRuntimeSnapshot(result) {
+
+        const symbol =
+            result?.marketState?.symbol;
+
+        if (!symbol) {
+            return;
+        }
+
+        const existingHistory =
+            getSymbolHistory(symbol);
+
+        const snapshot = {
+
+            timestamp:
+                result.generatedAt,
+
+            spot:
+                result.marketState.spot,
+
+            kingGammaStrike:
+                result.structure
+                    ?.kingGammaNode
+                    ?.strike ?? null,
+
+            kingVannaStrike:
+                result.structure
+                    ?.kingVannaNode
+                    ?.strike ?? null,
+
+            strongestAboveStrike:
+                result.structure
+                    ?.strongestNodeAboveSpot
+                    ?.strike ?? null,
+
+            strongestBelowStrike:
+                result.structure
+                    ?.strongestNodeBelowSpot
+                    ?.strike ?? null,
+
+            nodes:
+                result.nodes.map(node => ({
+
+                    strike:
+                        node.strike,
+
+                    gammaMagnitude:
+                        node.gammaMagnitude,
+
+                    vannaMagnitude:
+                        node.vannaMagnitude
+
+                }))
+
+        };
+
+        const updatedHistory = [
+            ...existingHistory,
+            snapshot
+        ].slice(
+            -HUNTER_CONFIG.maxSnapshotsPerSymbol
+        );
+
+        HUNTER_STATE.symbolHistory.set(
+            symbol,
+            updatedHistory
+        );
+
+    }
+
+    //------------------------------------------------------
+    // Error Handling
+    //------------------------------------------------------
+
+    function handleHunterError(
+        context,
+        error
+    ) {
+
+        HUNTER_STATE.lastError = {
+
+            context,
+
+            message:
+                error?.message ||
+                String(error),
+
+            timestamp:
+                new Date().toISOString()
+
+        };
+
+        console.warn(
+            `[Hunter v${HUNTER_CONFIG.version}] ${context}:`,
+            error
+        );
+
+        renderHunterError(
+            HUNTER_STATE.lastError
+        );
+
+    }
+
+    //------------------------------------------------------
+    // Initial UI
+    //------------------------------------------------------
+
+    createHunterPanel();
+
+        //======================================================
+    // PART 2A
+    // MARKET STATE + INSTITUTIONAL MAP ENGINE
+    //======================================================
+
+    function buildMarketState(matrix) {
+
+        return {
+
+            symbol:
+                matrix.symbol ||
+                matrix.Symbol ||
+                "Unknown",
+
+            spot:
+                toFiniteNumber(
+                    matrix.CurrentSpot ??
+                    matrix.currentSpot ??
+                    matrix.spot
+                ),
+
+            strikes:
+                Array.isArray(matrix.Strikes)
+                    ? matrix.Strikes
+                    : [],
+
+            gamma:
+                Array.isArray(matrix.GammaValues)
+                    ? matrix.GammaValues
+                    : [],
+
+            vanna:
+                Array.isArray(matrix.VannaValues)
+                    ? matrix.VannaValues
+                    : [],
+
+            timestamp:
+                matrix.LastUpdated ||
+                matrix.lastUpdated ||
+                new Date().toISOString()
+
+        };
+
+    }
+
+    //------------------------------------------------------
+
+    function buildInstitutionalNodes(marketState) {
+
+        const nodes = [];
+
+        const strikes =
+            marketState.strikes;
+
+        const gamma =
+            marketState.gamma;
+
+        const vanna =
+            marketState.vanna;
+
+        for (
+            let strikeIndex = 0;
+            strikeIndex < strikes.length;
+            strikeIndex++
+        ) {
+
+            const strike =
+                Number(strikes[strikeIndex]);
+
+            const gammaRow =
+                gamma[strikeIndex] || [];
+
+            const vannaRow =
+                vanna[strikeIndex] || [];
+
+            const gammaMagnitude =
+                sumAbsolute(gammaRow);
+
+            const vannaMagnitude =
+                sumAbsolute(vannaRow);
+
+            const distance =
+                marketState.spot !== null
+                    ? strike - marketState.spot
+                    : null;
+
+            const absDistance =
+                distance !== null
+                    ? Math.abs(distance)
+                    : null;
+
+            nodes.push({
+
+                strike,
+
+                gamma: gammaRow,
+
+                vanna: vannaRow,
+
+                gammaMagnitude,
+
+                vannaMagnitude,
+
+                distance,
+
+                absDistance
+
+            });
+
+        }
+
+        return nodes;
+
+    }
+
+    //------------------------------------------------------
+    // Math Helpers
+    //------------------------------------------------------
+
+    function sumAbsolute(values) {
+
+        if (!Array.isArray(values))
+            return 0;
+
+        return values.reduce(
+
+            (sum, value) =>
+
+                sum + Math.abs(Number(value) || 0),
+
+            0
+
+        );
+
+    }
+
+    //------------------------------------------------------
+    // Number Helpers
+    //------------------------------------------------------
+
+    function toFiniteNumber(value) {
+
+        const number =
+            Number(value);
+
+        return Number.isFinite(number)
+            ? number
+            : null;
+
+    }
+
+        //======================================================
+    // PART 2B
+    // INSTITUTIONAL STRUCTURE ENGINE
+    //======================================================
+
+    function buildInstitutionalStructure(nodes, spot) {
+
+        //--------------------------------------------------
+        // Sort by Gamma Magnitude
+        //--------------------------------------------------
+
+        const gammaRanking = [...nodes].sort(
+
+            (a, b) =>
+
+                b.gammaMagnitude -
+                a.gammaMagnitude
+
+        );
+
+        //--------------------------------------------------
+        // Sort by Vanna Magnitude
+        //--------------------------------------------------
+
+        const vannaRanking = [...nodes].sort(
+
+            (a, b) =>
+
+                b.vannaMagnitude -
+                a.vannaMagnitude
+
+        );
+
+        //--------------------------------------------------
+        // King Nodes
+        //--------------------------------------------------
+
+        const kingGammaNode =
+            gammaRanking.length
+                ? gammaRanking[0]
+                : null;
+
+        const kingVannaNode =
+            vannaRanking.length
+                ? vannaRanking[0]
+                : null;
+
+        //--------------------------------------------------
+        // Strongest Institutional Node Above Spot
+        //--------------------------------------------------
+
+        const strongestNodeAboveSpot =
+
+            [...nodes]
+
+                .filter(node =>
+
+                    spot !== null &&
+                    node.strike > spot
+
+                )
+
+                .sort(
+
+                    (a, b) =>
+
+                        b.gammaMagnitude -
+                        a.gammaMagnitude
+
+                )[0] || null;
+
+        //--------------------------------------------------
+        // Strongest Institutional Node Below Spot
+        //--------------------------------------------------
+
+        const strongestNodeBelowSpot =
+
+            [...nodes]
+
+                .filter(node =>
+
+                    spot !== null &&
+                    node.strike < spot
+
+                )
+
+                .sort(
+
+                    (a, b) =>
+
+                        b.gammaMagnitude -
+                        a.gammaMagnitude
+
+                )[0] || null;
+
+        //--------------------------------------------------
+        // Nearby Institutional Nodes
+        //--------------------------------------------------
+
+        const nearbyNodes =
+
+            [...nodes]
+
+                .filter(node =>
+
+                    node.absDistance !== null &&
+
+                    node.absDistance <=
+                    HUNTER_CONFIG.majorNodeDistance
+
+                )
+
+                .sort(
+
+                    (a, b) =>
+
+                        a.absDistance -
+                        b.absDistance
+
+                );
+
+        //--------------------------------------------------
+        // Top Gamma Ranking
+        //--------------------------------------------------
+
+        const topGammaNodes =
+            gammaRanking.slice(0, 10);
+
+        //--------------------------------------------------
+        // King Migration
+        //--------------------------------------------------
+
+        const history =
+            getSymbolHistory(
+                HUNTER_STATE.activeSymbol
+            );
+
+        let kingMigration =
+            "Collecting";
+
+        if (history.length) {
+
+            const previous =
+                history[
+                    history.length - 1
+                ];
+
+            if (
+
+                previous.kingGammaStrike !== null &&
+
+                kingGammaNode
+
+            ) {
+
+                if (
+                    previous.kingGammaStrike <
+                    kingGammaNode.strike
+                ) {
+
+                    kingMigration =
+                        "UP";
+
+                }
+
+                else if (
+                    previous.kingGammaStrike >
+                    kingGammaNode.strike
+                ) {
+
+                    kingMigration =
+                        "DOWN";
+
+                }
+
+                else {
+
+                    kingMigration =
+                        "STABLE";
+
+                }
+
+            }
+
+        }
+
+        //--------------------------------------------------
+        // Return Structure
+        //--------------------------------------------------
+
+        return {
+
+            nodes,
+
+            kingNode:
+                kingGammaNode,
+
+            kingGammaNode,
+
+            kingVannaNode,
+
+            strongestNodeAboveSpot,
+
+            strongestNodeBelowSpot,
+
+            nearbyNodes,
+
+            topGammaNodes,
+
+            kingMigration
+
+        };
+
+    }
