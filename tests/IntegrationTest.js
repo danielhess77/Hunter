@@ -174,20 +174,41 @@ console.log("Candidate Patterns:");
 
 result.patterns.candidatePatterns.forEach(pattern => {
 
-    console.log(
-        "-",
-        pattern.name
-    );
+    console.log("-", pattern.name);
 
-    console.log(
-        "  Direction:",
-        pattern.direction
-    );
+    if (pattern.stage) {
+        console.log("  Stage:", pattern.stage);
+    }
 
-    console.log(
-        "  Strike:",
-        pattern.nodeStrike
-    );
+    if (pattern.direction) {
+        console.log("  Direction:", pattern.direction);
+    }
+
+    if (pattern.strike !== undefined) {
+        console.log("  Strike:", pattern.strike);
+    }
+
+    if (pattern.nodeRole) {
+        console.log("  Node:", pattern.nodeRole);
+    }
+
+    if (pattern.distanceFromSpot !== undefined) {
+        console.log(
+            "  Distance:",
+            pattern.distanceFromSpot.toFixed(2)
+        );
+    }
+
+    if (pattern.confidence !== undefined) {
+        console.log(
+            "  Confidence:",
+            pattern.confidence + "%"
+        );
+    }
+
+    if (pattern.reason) {
+        console.log("  Reason:", pattern.reason);
+    }
 
     console.log("");
 

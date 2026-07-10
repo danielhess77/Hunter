@@ -1,23 +1,26 @@
 /**
  * Hunter Pattern Engine
- * Version: 0.6.0
+ * Version: 0.7.0
  *
- * Establishes pattern eligibility and the runtime
- * contract for Hunter's institutional patterns.
+ * Hunter Constitution:
+ * Rule #1:
+ * Hunter only evaluates patterns when price is
+ * within two strikes of a major institutional node.
  *
- * Core rule:
- * Hunter does not evaluate trade patterns at midpoints.
- * Price must be within two strikes of a major node.
- *
- * Dynamic pattern detection will be added after the
- * runtime stores price and institutional-node history.
+ * Dynamic pattern confirmation is handled by the
+ * individual pattern detectors.
  */
+
+import NodeDeflectionDetector from "./NodeDeflectionDetector.js";
 
 class HunterPatternEngine {
 
     constructor() {
 
-        this.version = "0.6.0";
+        this.version = "0.7.0";
+
+        this.nodeDeflectionDetector =
+            new NodeDeflectionDetector();
 
         this.patternNames = [
             "Node Deflection",
@@ -37,30 +40,54 @@ class HunterPatternEngine {
 
         const majorNodes = this.getMajorNodes(structure);
 
-        const nearbyMajorNodes = majorNodes
-            .map(node => ({
-                ...node,
-                distanceFromSpot:
-                    spot !== null
-                        ? Math.abs(node.strike - spot)
-                        : null
-            }))
-            .filter(node =>
-                node.distanceFromSpot !== null &&
-                node.distanceFromSpot <= 2
-            )
-            .sort(
-                (a, b) =>
-                    a.distanceFromSpot - b.distanceFromSpot
-            );
+        const nearbyMajorNodes =
+            majorNodes
+                .map(node => ({
+                    ...node,
+                    distanceFromSpot:
+                        spot !== null
+                            ? Math.abs(node.strike - spot)
+                            : null
+                }))
+                .filter(node =>
+                    node.distanceFromSpot !== null &&
+                    node.distanceFromSpot <= 2
+                )
+                .sort(
+                    (a, b) =>
+                        a.distanceFromSpot -
+                        b.distanceFromSpot
+                );
 
         const primaryNode =
             nearbyMajorNodes[0] || null;
+
+        const currentSnapshot = {
+
+            spot,
+
+            primaryNode
+
+        };
+
+        const previousSnapshot =
+            marketState?.previousSnapshot ??
+            null;
+
+        const nodeDeflection =
+            this.nodeDeflectionDetector.analyze(
+                currentSnapshot,
+                previousSnapshot
+            );
 
         const locationEligible =
             primaryNode !== null;
 
         const requiredData = [];
+
+        //---------------------------------------------------
+        // Constitution Rule #1
+        //---------------------------------------------------
 
         if (!locationEligible) {
 
@@ -91,13 +118,9 @@ class HunterPatternEngine {
 
         }
 
-        /*
-         * A live snapshot confirms institutional location,
-         * but it does not prove a dynamic pattern.
-         *
-         * Rug / Reverse Rug / Beach Ball / Rainbow Road /
-         * Whipsaw / Pike Cloud require historical observations.
-         */
+        //---------------------------------------------------
+        // Waiting on additional history
+        //---------------------------------------------------
 
         requiredData.push(
             "priceHistory",
@@ -105,11 +128,85 @@ class HunterPatternEngine {
             "nodeStrikeHistory"
         );
 
+        //---------------------------------------------------
+        // Candidate Pattern
+        //---------------------------------------------------
+
+        const candidatePatterns = [
+
+    {
+
+        name: "Node Deflection",
+
+        stage:
+            nodeDeflection.stage,
+
+        confidence:
+            nodeDeflection.confidence,
+
+        direction:
+            nodeDeflection.direction,
+
+        strike:
+            primaryNode.strike,
+
+        nodeRole:
+            primaryNode.role,
+
+        distanceFromSpot:
+            primaryNode.distanceFromSpot,
+
+        reason:
+            nodeDeflection.reason
+
+    }
+
+];
+
+        //---------------------------------------------------
+        // Confirmed Pattern
+        //---------------------------------------------------
+
+        const detectedPatterns =
+            nodeDeflection.confirmed
+
+                ? {
+
+    name: "Node Deflection",
+
+    confidence:
+        nodeDeflection.confidence,
+
+    direction:
+        nodeDeflection.direction,
+
+    strike:
+        primaryNode.strike,
+
+    nodeRole:
+        primaryNode.role,
+
+    distanceFromSpot:
+        primaryNode.distanceFromSpot,
+
+    reason:
+        nodeDeflection.reason
+
+}
+
+                : [];
+
         return {
 
             version: this.version,
 
-            status: "ELIGIBLE_WAITING_FOR_PATTERN_DATA",
+            status:
+
+                nodeDeflection.confirmed
+
+                    ? "PATTERN_ACTIVE"
+
+                    : "ELIGIBLE_WAITING_FOR_PATTERN_DATA",
 
             locationEligible: true,
 
@@ -119,26 +216,9 @@ class HunterPatternEngine {
 
             nearbyMajorNodes,
 
-            detectedPatterns: [],
+            detectedPatterns,
 
-            candidatePatterns: [
-                {
-                    name: "Node Deflection",
-                    status: "WATCHING",
-                    direction:
-                        primaryNode.strike < spot
-                            ? "BULLISH_DEFLECTION_WATCH"
-                            : primaryNode.strike > spot
-                                ? "BEARISH_DEFLECTION_WATCH"
-                                : "PIVOT_WATCH",
-                    nodeStrike: primaryNode.strike,
-                    nodeRole: primaryNode.role,
-                    distanceFromSpot:
-                        primaryNode.distanceFromSpot,
-                    reason:
-                        "Price is near a major institutional node. Confirmation requires price response data."
-                }
-            ],
+            candidatePatterns,
 
             reason:
                 "Price is within two strikes of a major institutional node. Pattern evaluation is permitted.",
@@ -152,25 +232,31 @@ class HunterPatternEngine {
     getMajorNodes(structure) {
 
         const candidates = [
+
             {
                 role: "King Gamma",
                 node: structure?.kingGammaNode
             },
+
             {
                 role: "Strongest Above",
                 node: structure?.strongestNodeAboveSpot
             },
+
             {
                 role: "Strongest Below",
                 node: structure?.strongestNodeBelowSpot
             }
+
         ];
 
-        const uniqueNodes = new Map();
+        const uniqueNodes =
+            new Map();
 
         for (const candidate of candidates) {
 
-            const node = candidate.node;
+            const node =
+                candidate.node;
 
             if (
                 !node ||
@@ -185,37 +271,49 @@ class HunterPatternEngine {
             if (!existing) {
 
                 uniqueNodes.set(
+
                     node.strike,
+
                     {
+
                         ...node,
+
                         role: candidate.role
+
                     }
+
                 );
 
                 continue;
 
             }
 
-            /*
-             * King Gamma takes precedence when one strike
-             * appears in multiple structural roles.
-             */
-
-            if (candidate.role === "King Gamma") {
+            if (
+                candidate.role ===
+                "King Gamma"
+            ) {
 
                 uniqueNodes.set(
+
                     node.strike,
+
                     {
+
                         ...node,
+
                         role: candidate.role
+
                     }
+
                 );
 
             }
 
         }
 
-        return [...uniqueNodes.values()];
+        return [
+            ...uniqueNodes.values()
+        ];
 
     }
 
