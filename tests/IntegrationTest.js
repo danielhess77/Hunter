@@ -23,9 +23,34 @@ const rawData = JSON.parse(
 
 const hunter = new HunterRuntime();
 
-const result = await hunter.analyze(rawData);
+// First snapshot
+await hunter.analyze(rawData);
+
+// Controlled second snapshot near King Gamma
+const eligibleRawData = structuredClone(rawData);
+
+const matrixCall =
+    eligibleRawData.fetchCalls.find(
+        call => call.type === "matrix"
+    );
+
+matrixCall.payload.CurrentSpot = 740.5;
+
+const result = await hunter.analyze(eligibleRawData);
 
 const { marketState, nodes, structure } = result;
+
+console.log("");
+console.log("=========================");
+console.log("STRUCTURE DEBUG");
+console.log("=========================");
+
+console.log("King Gamma =", structure.kingGammaNode);
+console.log("Strongest Above =", structure.strongestNodeAboveSpot);
+console.log("Strongest Below =", structure.strongestNodeBelowSpot);
+console.log("Nearest =", structure.nearestNode);
+
+console.log("");
 
 // ----------------------------------------
 // Report
@@ -167,3 +192,29 @@ result.patterns.candidatePatterns.forEach(pattern => {
     console.log("");
 
 });
+
+console.log("");
+console.log("==========================");
+console.log("MEMORY");
+console.log("==========================");
+
+console.log(
+    "Has Previous Snapshot:",
+    result.memory.hasHistory()
+);
+
+if (result.memory.hasHistory()) {
+
+    console.log("");
+
+    console.log(
+        "Previous Spot:",
+        result.memory.getPrevious().spot
+    );
+
+    console.log(
+        "Current Spot:",
+        result.memory.getCurrent().spot
+    );
+
+}

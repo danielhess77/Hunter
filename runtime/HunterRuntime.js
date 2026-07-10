@@ -10,6 +10,8 @@
 
 import HunterMarketState from "./HunterMarketState.js";
 
+import HunterMemory from "./HunterMemory.js";
+
 import HunterDataConnector
     from "../connectors/HunterDataConnector/HunterDataConnector.js";
 
@@ -34,6 +36,9 @@ class HunterRuntime {
 
         this.marketState =
             new HunterMarketState();
+
+        this.memory =
+            new HunterMemory();
 
         this.mapEngine =
             new InstitutionalMapEngine();
@@ -80,6 +85,22 @@ class HunterRuntime {
             );
 
         //--------------------------------------------------
+        // Update Runtime Memory
+        //--------------------------------------------------
+
+        this.memory.update({
+
+        timestamp: Date.now(),
+
+        symbol: this.marketState.symbol,
+
+        spot: this.marketState.spot,
+
+        structure
+
+        });
+
+        //--------------------------------------------------
         // Analyze Institutional Patterns
         //--------------------------------------------------
 
@@ -104,7 +125,9 @@ class HunterRuntime {
 
         return {
 
-         marketState: this.marketState,
+        marketState: this.marketState,
+
+        memory: this.memory,
 
         nodes,
 
