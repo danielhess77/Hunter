@@ -22,6 +22,9 @@ import InstitutionalStructureEngine
 import HunterDecisionEngine
     from "../engines/HunterDecisionEngine/HunterDecisionEngine.js";
 
+import HunterPatternEngine
+    from "../engines/HunterPatternEngine/HunterPatternEngine.js";
+
 class HunterRuntime {
 
     constructor() {
@@ -37,6 +40,9 @@ class HunterRuntime {
 
         this.structureEngine =
             new InstitutionalStructureEngine();
+
+        this.patternEngine =
+            new HunterPatternEngine();
 
         this.decisionEngine =
             new HunterDecisionEngine();
@@ -74,6 +80,16 @@ class HunterRuntime {
             );
 
         //--------------------------------------------------
+        // Analyze Institutional Patterns
+        //--------------------------------------------------
+
+        const patterns =
+            this.patternEngine.analyze(
+                this.marketState,
+                structure
+    );
+
+        //--------------------------------------------------
         // Institutional Decision
         //--------------------------------------------------
 
@@ -88,15 +104,17 @@ class HunterRuntime {
 
         return {
 
-            marketState: this.marketState,
+         marketState: this.marketState,
 
-            nodes,
+        nodes,
 
-            structure,
+        structure,
 
-            decision
+        patterns,
 
-        };
+        decision
+
+};
 
     }
 

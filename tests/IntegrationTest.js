@@ -119,3 +119,51 @@ result.decision.reasons.forEach(reason => {
     console.log("•", reason);
 
 });
+
+console.log("");
+console.log("===========================");
+console.log("PATTERN ENGINE");
+console.log("===========================");
+
+console.log("Status:",
+    result.patterns.status);
+
+console.log("Location Eligible:",
+    result.patterns.locationEligible);
+
+console.log("");
+
+if (result.patterns.primaryNode) {
+
+    console.log("Primary Node:",
+        result.patterns.primaryNode.role);
+
+    console.log("Strike:",
+        result.patterns.primaryNode.strike);
+
+    console.log("");
+
+}
+
+console.log("Candidate Patterns:");
+
+result.patterns.candidatePatterns.forEach(pattern => {
+
+    console.log(
+        "-",
+        pattern.name
+    );
+
+    console.log(
+        "  Direction:",
+        pattern.direction
+    );
+
+    console.log(
+        "  Strike:",
+        pattern.nodeStrike
+    );
+
+    console.log("");
+
+});
