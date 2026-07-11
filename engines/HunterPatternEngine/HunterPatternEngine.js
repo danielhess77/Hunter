@@ -11,6 +11,8 @@
  * individual pattern detectors.
  */
 
+import BeachBallDetector from "./BeachBallDetector.js";
+
 import NodeDeflectionDetector
     from "./NodeDeflectionDetector.js";
 
@@ -20,20 +22,37 @@ import ReverseRugDetector
 import RugDetector
     from "./RugDetector.js";
 
+import RainbowRoadDetector
+    from "./RainbowRoadDetector.js";
+
+import WhipsawDetector
+    from "./WhipsawDetector.js";
+
+import PikaCloudDetector
+    from "./PikaCloudDetector.js";
+
 class HunterPatternEngine {
 
     constructor() {
 
-        this.version = "0.9.2";
+        this.detectors = [
 
-        this.nodeDeflectionDetector =
-            new NodeDeflectionDetector();
+        new NodeDeflectionDetector(),
 
-        this.reverseRugDetector =
-            new ReverseRugDetector();
+        new ReverseRugDetector(),
 
-        this.rugDetector =
-            new RugDetector();
+        new RugDetector(),
+
+        new BeachBallDetector(),
+
+        new RainbowRoadDetector(),
+
+        new WhipsawDetector(),
+
+        new PikaCloudDetector()
+
+];
+
 
         this.patternNames = [
             "Node Deflection",
@@ -140,24 +159,13 @@ class HunterPatternEngine {
         // Evaluate Pattern Detectors
         //--------------------------------------------------
 
-        const patternResults = [
-
-            this.nodeDeflectionDetector.analyze(
-                currentSnapshot,
-                previousSnapshot
-            ),
-
-            this.reverseRugDetector.analyze(
-                currentSnapshot,
-                previousSnapshot
-            ),
-
-            this.rugDetector.analyze(
-                currentSnapshot,
-                previousSnapshot
-            )
-
-        ];
+        const patternResults =
+        this.detectors.map(detector =>
+        detector.analyze(
+            currentSnapshot,
+            previousSnapshot
+        )
+    );
 
         //--------------------------------------------------
         // Candidate Patterns
