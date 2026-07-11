@@ -1,6 +1,6 @@
 /**
  * Hunter Base Pattern Detector
- * Version: 1.0.0
+ * Version: 1.1.0
  *
  * Provides a consistent result contract for
  * Hunter's institutional pattern detectors.
@@ -14,14 +14,20 @@ class BasePatternDetector {
     constructor(name) {
 
         if (!name) {
+
             throw new Error(
                 "Pattern detector requires a name."
             );
+
         }
 
         this.name = name;
 
     }
+
+    //--------------------------------------------------
+    // Standard Pattern Result
+    //--------------------------------------------------
 
     createResult({
 
@@ -69,6 +75,10 @@ class BasePatternDetector {
 
     }
 
+    //--------------------------------------------------
+    // Common Runtime States
+    //--------------------------------------------------
+
     waitingForHistory(currentSnapshot) {
 
         const node =
@@ -108,6 +118,36 @@ class BasePatternDetector {
                 "No major institutional node."
 
         });
+
+    }
+
+    //--------------------------------------------------
+    // Shared Confidence Calculator
+    //--------------------------------------------------
+
+    calculateConfidence(stage) {
+
+        switch (stage) {
+
+            case "WATCHING":
+                return 10;
+
+            case "APPROACH":
+                return 30;
+
+            case "CONTACT":
+                return 50;
+
+            case "REJECTION":
+                return 60;
+
+            case "CONFIRMED":
+                return 90;
+
+            default:
+                return 0;
+
+        }
 
     }
 

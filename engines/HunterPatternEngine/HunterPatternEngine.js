@@ -1,6 +1,6 @@
 /**
  * Hunter Pattern Engine
- * Version: 0.7.0
+ * Version: 0.9.2
  *
  * Hunter Constitution:
  * Rule #1:
@@ -11,20 +11,29 @@
  * individual pattern detectors.
  */
 
-import NodeDeflectionDetector from "./NodeDeflectionDetector.js";
-import ReverseRugDetector from "./ReverseRugDetector.js";
+import NodeDeflectionDetector
+    from "./NodeDeflectionDetector.js";
+
+import ReverseRugDetector
+    from "./ReverseRugDetector.js";
+
+import RugDetector
+    from "./RugDetector.js";
 
 class HunterPatternEngine {
 
     constructor() {
 
-        this.version = "0.7.0";
+        this.version = "0.9.2";
 
         this.nodeDeflectionDetector =
             new NodeDeflectionDetector();
 
         this.reverseRugDetector =
             new ReverseRugDetector();
+
+        this.rugDetector =
+            new RugDetector();
 
         this.patternNames = [
             "Node Deflection",
@@ -40,18 +49,25 @@ class HunterPatternEngine {
 
     analyze(marketState, structure) {
 
-        const spot = marketState?.spot ?? null;
+        const spot =
+            marketState?.spot ?? null;
 
-        const majorNodes = this.getMajorNodes(structure);
+        const majorNodes =
+            this.getMajorNodes(structure);
 
         const nearbyMajorNodes =
             majorNodes
                 .map(node => ({
+
                     ...node,
+
                     distanceFromSpot:
                         spot !== null
-                            ? Math.abs(node.strike - spot)
+                            ? Math.abs(
+                                node.strike - spot
+                            )
                             : null
+
                 }))
                 .filter(node =>
                     node.distanceFromSpot !== null &&
@@ -66,38 +82,14 @@ class HunterPatternEngine {
         const primaryNode =
             nearbyMajorNodes[0] || null;
 
-        const currentSnapshot = {
-
-            spot,
-
-            primaryNode
-
-        };
-
-        const previousSnapshot =
-            marketState?.previousSnapshot ??
-            null;
-
-        const nodeDeflection =
-            this.nodeDeflectionDetector.analyze(
-                currentSnapshot,
-                previousSnapshot
-            );
-
-        const reverseRug =
-            this.reverseRugDetector.analyze(
-                currentSnapshot,
-                previousSnapshot
-            );
-
         const locationEligible =
             primaryNode !== null;
 
         const requiredData = [];
 
-        //---------------------------------------------------
+        //--------------------------------------------------
         // Constitution Rule #1
-        //---------------------------------------------------
+        //--------------------------------------------------
 
         if (!locationEligible) {
 
@@ -128,9 +120,128 @@ class HunterPatternEngine {
 
         }
 
-        //---------------------------------------------------
-        // Waiting on additional history
-        //---------------------------------------------------
+        //--------------------------------------------------
+        // Pattern snapshots
+        //--------------------------------------------------
+
+        const currentSnapshot = {
+
+            spot,
+
+            primaryNode
+
+        };
+
+        const previousSnapshot =
+            marketState?.previousSnapshot ??
+            null;
+
+        //--------------------------------------------------
+        // Evaluate Pattern Detectors
+        //--------------------------------------------------
+
+        const patternResults = [
+
+            this.nodeDeflectionDetector.analyze(
+                currentSnapshot,
+                previousSnapshot
+            ),
+
+            this.reverseRugDetector.analyze(
+                currentSnapshot,
+                previousSnapshot
+            ),
+
+            this.rugDetector.analyze(
+                currentSnapshot,
+                previousSnapshot
+            )
+
+        ];
+
+        //--------------------------------------------------
+        // Candidate Patterns
+        //--------------------------------------------------
+
+        const candidatePatterns =
+            patternResults
+                .filter(result =>
+                    result &&
+                    result.stage !==
+                        "WAITING_FOR_HISTORY" &&
+                    result.stage !==
+                        "NO_LOCATION"
+                )
+                .map(result => ({
+
+                    name: result.name,
+
+                    stage: result.stage,
+
+                    confidence:
+                        result.confidence,
+
+                    direction:
+                        result.direction,
+
+                    strike:
+                        result.strike ??
+                        primaryNode.strike,
+
+                    nodeRole:
+                        result.nodeRole ??
+                        primaryNode.role,
+
+                    distanceFromSpot:
+                        result.distanceFromSpot ??
+                        primaryNode.distanceFromSpot,
+
+                    reason:
+                        result.reason
+
+                }));
+
+        //--------------------------------------------------
+        // Confirmed Patterns
+        //--------------------------------------------------
+
+        const detectedPatterns =
+            patternResults
+                .filter(result =>
+                    result?.confirmed === true
+                )
+                .map(result => ({
+
+                    name: result.name,
+
+                    stage: result.stage,
+
+                    confidence:
+                        result.confidence,
+
+                    direction:
+                        result.direction,
+
+                    strike:
+                        result.strike ??
+                        primaryNode.strike,
+
+                    nodeRole:
+                        result.nodeRole ??
+                        primaryNode.role,
+
+                    distanceFromSpot:
+                        result.distanceFromSpot ??
+                        primaryNode.distanceFromSpot,
+
+                    reason:
+                        result.reason
+
+                }));
+
+        //--------------------------------------------------
+        // Required historical data
+        //--------------------------------------------------
 
         requiredData.push(
             "priceHistory",
@@ -138,103 +249,17 @@ class HunterPatternEngine {
             "nodeStrikeHistory"
         );
 
-        //---------------------------------------------------
-        // Candidate Patterns
-        //---------------------------------------------------
-
-        const candidatePatterns = [];
-
-        if (nodeDeflection.stage !== "WAITING_FOR_HISTORY") {
-
-        candidatePatterns.push({
-
-            name: "Node Deflection",
-
-            stage: nodeDeflection.stage,
-
-            confidence: nodeDeflection.confidence,
-
-            direction: nodeDeflection.direction,
-
-            strike: primaryNode.strike,
-
-            nodeRole: primaryNode.role,
-
-            distanceFromSpot: primaryNode.distanceFromSpot,
-
-            reason: nodeDeflection.reason
-
-    });
-
-}
-
-        if (reverseRug.stage !== "WAITING_FOR_HISTORY") {
-
-        candidatePatterns.push({
-
-            name: "Reverse Rug",
-
-            stage: reverseRug.stage,
-
-            confidence: reverseRug.confidence,
-
-            direction: reverseRug.direction,
-
-            strike: primaryNode.strike,
-
-            nodeRole: primaryNode.role,
-
-            distanceFromSpot: primaryNode.distanceFromSpot,
-
-            reason: reverseRug.reason
-
-    });
-
-}
-
-        //---------------------------------------------------
-        // Confirmed Pattern
-        //---------------------------------------------------
-
-        const detectedPatterns =
-            nodeDeflection.confirmed
-
-                ? {
-
-    name: "Node Deflection",
-
-    confidence:
-        nodeDeflection.confidence,
-
-    direction:
-        nodeDeflection.direction,
-
-    strike:
-        primaryNode.strike,
-
-    nodeRole:
-        primaryNode.role,
-
-    distanceFromSpot:
-        primaryNode.distanceFromSpot,
-
-    reason:
-        nodeDeflection.reason
-
-}
-
-                : [];
+        //--------------------------------------------------
+        // Result
+        //--------------------------------------------------
 
         return {
 
             version: this.version,
 
             status:
-
-                nodeDeflection.confirmed
-
+                detectedPatterns.length > 0
                     ? "PATTERN_ACTIVE"
-
                     : "ELIGIBLE_WAITING_FOR_PATTERN_DATA",
 
             locationEligible: true,
@@ -264,17 +289,22 @@ class HunterPatternEngine {
 
             {
                 role: "King Gamma",
-                node: structure?.kingGammaNode
+                node:
+                    structure?.kingGammaNode
             },
 
             {
                 role: "Strongest Above",
-                node: structure?.strongestNodeAboveSpot
+                node:
+                    structure
+                        ?.strongestNodeAboveSpot
             },
 
             {
                 role: "Strongest Below",
-                node: structure?.strongestNodeBelowSpot
+                node:
+                    structure
+                        ?.strongestNodeBelowSpot
             }
 
         ];
@@ -291,7 +321,9 @@ class HunterPatternEngine {
                 !node ||
                 typeof node.strike !== "number"
             ) {
+
                 continue;
+
             }
 
             const existing =
@@ -300,22 +332,21 @@ class HunterPatternEngine {
             if (!existing) {
 
                 uniqueNodes.set(
-
                     node.strike,
-
                     {
-
                         ...node,
-
                         role: candidate.role
-
                     }
-
                 );
 
                 continue;
 
             }
+
+            /*
+             * King Gamma takes precedence when
+             * one strike has multiple roles.
+             */
 
             if (
                 candidate.role ===
@@ -323,17 +354,11 @@ class HunterPatternEngine {
             ) {
 
                 uniqueNodes.set(
-
                     node.strike,
-
                     {
-
                         ...node,
-
                         role: candidate.role
-
                     }
-
                 );
 
             }
