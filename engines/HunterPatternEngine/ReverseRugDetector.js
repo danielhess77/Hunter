@@ -20,6 +20,10 @@ class ReverseRugDetector
 
     analyze(currentSnapshot, previousSnapshot) {
 
+        //--------------------------------------------------
+        // Validation
+        //--------------------------------------------------
+
         if (!previousSnapshot) {
 
             return this.waitingForHistory(
@@ -34,23 +38,84 @@ class ReverseRugDetector
 
         }
 
+        //--------------------------------------------------
+        // Current state
+        //--------------------------------------------------
+
+        const node =
+            currentSnapshot.primaryNode;
+
+        const nearFloor =
+            node?.isFloor === true;
+
+        const currentSpot =
+            currentSnapshot.spot;
+
+        const previousSpot =
+            previousSnapshot.spot;
+
+        let stage = "WATCHING";
+        let confidence = 10;
+        let confirmed = false;
+        let reason =
+            "Watching for Reverse Rug formation.";
+
+        //--------------------------------------------------
+        // Simple prototype logic
+        //--------------------------------------------------
+
+        if (
+            nearFloor &&
+            currentSpot > previousSpot
+        ) {
+
+            stage = "BUILDING";
+
+            confidence = 35;
+
+            reason =
+                "Price is lifting from an institutional floor.";
+
+        }
+
+        if (
+            nearFloor &&
+            currentSpot > node.strike
+        ) {
+
+            stage = "CONFIRMED";
+
+            confidence = 70;
+
+            confirmed = true;
+
+            reason =
+                "Price has reclaimed institutional support.";
+
+        }
+
+        //--------------------------------------------------
+        // Return
+        //--------------------------------------------------
+
         return this.createResult({
 
-            stage: "WATCHING",
+            confirmed,
 
-            confidence: 10,
+            stage,
 
-            strike:
-                currentSnapshot.primaryNode.strike,
+            confidence,
 
-            nodeRole:
-                currentSnapshot.primaryNode.role,
+            direction: "BULLISH",
+
+            strike: node.strike,
+
+            nodeRole: node.role,
 
             distanceFromSpot:
-                currentSnapshot.primaryNode.distanceFromSpot,
+                node.distanceFromSpot,
 
-            reason:
-                "Watching for Reverse Rug formation."
+            reason
 
         });
 
