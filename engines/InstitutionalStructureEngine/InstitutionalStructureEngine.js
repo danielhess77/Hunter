@@ -1,6 +1,7 @@
 import StructureStateAnalyzer from "./StructureStateAnalyzer.js";
 import StructureEvaluator from "./StructureEvaluator.js";
 import StructureEvolutionAnalyzer from "./StructureEvolutionAnalyzer.js";
+import StructureNavigator from "./StructureNavigator.js";
 
 /**
  * Hunter Institutional Structure Engine
@@ -169,6 +170,9 @@ class InstitutionalStructureEngine {
             nearbyNodes
 
         };
+
+        structure.navigator =
+            this.navigator;
 
         structure.evolution =
         this.evolutionAnalyzer.analyze(

@@ -27,29 +27,33 @@ class MatrixParser {
             const gammaRow = gamma[strikeIndex] || [];
             const vannaRow = vanna[strikeIndex] || [];
 
-            const gammaMagnitude = gammaRow.reduce(
-                (sum, value) => sum + Math.abs(value || 0),
-                0
-            );
+            const gammaNet = gammaRow.reduce(
+        (sum, value) => sum + (value || 0),
+    0
+);
 
-            const vannaMagnitude = vannaRow.reduce(
-                (sum, value) => sum + Math.abs(value || 0),
-                0
-            );
+const vannaNet = vannaRow.reduce(
+    (sum, value) => sum + (value || 0),
+    0
+);
 
             nodes.push({
 
-                strike,
+            strike,
 
-                gamma: gammaRow,
+            gamma: gammaRow,
 
-                vanna: vannaRow,
+            gammaNet,
 
-                gammaMagnitude,
+            gammaMagnitude,
 
-                vannaMagnitude
+            vanna: vannaRow,
 
-            });
+            vannaNet,
+
+            vannaMagnitude
+
+        });
 
         }
 
