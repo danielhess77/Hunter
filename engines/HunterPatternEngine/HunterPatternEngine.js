@@ -145,11 +145,15 @@ class HunterPatternEngine {
 
         const currentSnapshot = {
 
-            spot,
+        spot,
 
-            primaryNode
+        primaryNode,
 
-        };
+        nodes: structure.nodes,
+
+        structure
+
+};
 
         const previousSnapshot =
             marketState?.previousSnapshot ??

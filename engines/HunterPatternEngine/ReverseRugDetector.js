@@ -45,6 +45,42 @@ class ReverseRugDetector
         const node =
             currentSnapshot.primaryNode;
 
+        //----------------------------------------------------
+        // Find the next three strikes above the floor
+        //----------------------------------------------------
+
+        const nodes =
+            currentSnapshot.nodes || [];
+
+        const currentIndex =
+            nodes.findIndex(
+                n => n.strike === node.strike
+        );
+
+        const nextThreeStrikes =
+            currentIndex >= 0
+
+                ? nodes.slice(
+                currentIndex + 1,
+                currentIndex + 4
+        )
+
+        : [];
+
+        //----------------------------------------------------
+        // Validate institutional fuel
+        //----------------------------------------------------
+
+        const hasFuel =
+
+            nextThreeStrikes.length === 3 &&
+
+            nextThreeStrikes.every(node =>
+
+                node.gammaNet < 0
+
+    );
+
         const nearFloor =
             node?.isFloor === true;
 
@@ -54,11 +90,27 @@ class ReverseRugDetector
         const previousSpot =
             previousSnapshot.spot;
 
+        let detected = false;
+
         let stage = "WATCHING";
-        let confidence = 10;
-        let confirmed = false;
+
+        let direction = "Bullish";
+
+        let confidence = 100;
+
         let reason =
-            "Watching for Reverse Rug formation.";
+            "Reverse Rug not detected.";
+
+        if (hasFuel) {
+
+            detected = true;
+
+            stage = "CONFIRMED";
+
+            reason =
+                "Valid institutional floor with negative gamma fuel above.";
+
+}
 
         //--------------------------------------------------
         // Simple prototype logic
@@ -100,13 +152,13 @@ class ReverseRugDetector
 
         return this.createResult({
 
-            confirmed,
+            detected,
 
             stage,
 
             confidence,
 
-            direction: "BULLISH",
+            direction,
 
             strike: node.strike,
 
@@ -117,7 +169,7 @@ class ReverseRugDetector
 
             reason
 
-        });
+});
 
     }
 

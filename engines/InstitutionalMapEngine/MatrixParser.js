@@ -1,13 +1,14 @@
 /**
  * Matrix Parser
- * Version: 1.2
+ * Version: 1.3
  *
  * Converts a Heatseeker matrix into
  * normalized institutional node objects.
  *
  * Important:
  * Gamma and Vanna are kept separate.
- * Hunter does not combine them into one magnitude.
+ * Hunter preserves both signed net exposure
+ * and absolute magnitude.
  */
 
 class MatrixParser {
@@ -16,44 +17,75 @@ class MatrixParser {
 
         const nodes = [];
 
-        const strikes = marketState.strikes || [];
-        const gamma = marketState.gamma || [];
-        const vanna = marketState.vanna || [];
+        const strikes =
+            marketState.strikes || [];
 
-        for (let strikeIndex = 0; strikeIndex < strikes.length; strikeIndex++) {
+        const gamma =
+            marketState.gamma || [];
 
-            const strike = strikes[strikeIndex];
+        const vanna =
+            marketState.vanna || [];
 
-            const gammaRow = gamma[strikeIndex] || [];
-            const vannaRow = vanna[strikeIndex] || [];
+        for (
+            let strikeIndex = 0;
+            strikeIndex < strikes.length;
+            strikeIndex++
+        ) {
 
-            const gammaNet = gammaRow.reduce(
-        (sum, value) => sum + (value || 0),
-    0
-);
+            const strike =
+                strikes[strikeIndex];
 
-const vannaNet = vannaRow.reduce(
-    (sum, value) => sum + (value || 0),
-    0
-);
+            const gammaRow =
+                gamma[strikeIndex] || [];
+
+            const vannaRow =
+                vanna[strikeIndex] || [];
+
+            const gammaNet =
+                gammaRow.reduce(
+                    (sum, value) =>
+                        sum + (value || 0),
+                    0
+                );
+
+            const gammaMagnitude =
+                gammaRow.reduce(
+                    (sum, value) =>
+                        sum + Math.abs(value || 0),
+                    0
+                );
+
+            const vannaNet =
+                vannaRow.reduce(
+                    (sum, value) =>
+                        sum + (value || 0),
+                    0
+                );
+
+            const vannaMagnitude =
+                vannaRow.reduce(
+                    (sum, value) =>
+                        sum + Math.abs(value || 0),
+                    0
+                );
 
             nodes.push({
 
-            strike,
+                strike,
 
-            gamma: gammaRow,
+                gamma: gammaRow,
 
-            gammaNet,
+                gammaNet,
 
-            gammaMagnitude,
+                gammaMagnitude,
 
-            vanna: vannaRow,
+                vanna: vannaRow,
 
-            vannaNet,
+                vannaNet,
 
-            vannaMagnitude
+                vannaMagnitude
 
-        });
+            });
 
         }
 
