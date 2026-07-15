@@ -1,0 +1,30 @@
+{
+  "name": "hunter-research-lab",
+  "version": "0.1.0",
+  "description": "Hunter Research Lab - Transcript Ingestion Engine",
+  "main": "app.js",
+  "type": "module",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --watch app.js",
+    "test": "echo \"No tests yet\""
+  },
+  "keywords": [
+    "hunter",
+    "research",
+    "youtube",
+    "transcript",
+    "ai",
+    "trading"
+  ],
+  "author": "Hunter",
+  "license": "MIT",
+  "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
+    "axios": "^1.11.0",
+    "cheerio": "^1.1.2",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "youtubei.js": "^17.2.0"
+  }
+}
