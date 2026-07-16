@@ -1,12 +1,13 @@
 /**
  * Hunter Runtime
- * Version: 0.8.0
+ * Version: 0.9.0
  *
  * Central analysis pipeline for Hunter.
  */
 
 import HunterMarketState from "./HunterMarketState.js";
 import HunterMemory from "./HunterMemory.js";
+import HunterEvidence from "../shared/HunterEvidence.js";
 
 import HunterDataConnector
     from "../connectors/HunterDataConnector/HunterDataConnector.js";
@@ -19,9 +20,6 @@ import InstitutionalStructureEngine
 
 import InstitutionalEvolutionEngine
     from "../engines/InstitutionalEvolutionEngine/InstitutionalEvolutionEngine.js";
-
-import HunterDecisionEngine
-    from "../engines/HunterDecisionEngine/HunterDecisionEngine.js";
 
 import HunterPatternEngine
     from "../engines/HunterPatternEngine/HunterPatternEngine.js";
@@ -44,7 +42,6 @@ class HunterRuntime {
 
         this.patternEngine = new HunterPatternEngine();
 
-        this.decisionEngine = new HunterDecisionEngine();
 
     }
 
@@ -111,13 +108,16 @@ class HunterRuntime {
             );
 
         //--------------------------------------------------
-        // Decision Engine
+        // Build Canonical Evidence Snapshot
         //--------------------------------------------------
 
-        const decision =
-            this.decisionEngine.analyze(
-                structure
-            );
+        const evidence = new HunterEvidence({
+            marketState: this.marketState,
+            nodes,
+            structure,
+            evolution,
+            patterns
+        });
 
         //--------------------------------------------------
         // NOW update memory
@@ -155,7 +155,9 @@ class HunterRuntime {
 
             patterns,
 
-            decision
+            evidence,
+
+            decision: null
 
         };
 
