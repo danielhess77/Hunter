@@ -1,385 +1,207 @@
 /**
  * Hunter Pattern Engine
- * Version: 0.9.2
+ * Version: 2.0.0 (Canonical)
  *
- * Hunter Constitution:
- * Rule #1:
- * Hunter only evaluates patterns when price is
- * within two strikes of a major institutional node.
- *
- * Dynamic pattern confirmation is handled by the
- * individual pattern detectors.
+ * Responsibilities:
+ * 1. Enforce Constitution Rule #1
+ * 2. Build canonical snapshots
+ * 3. Execute all pattern detectors
+ * 4. Normalize detector output
  */
 
 import BeachBallDetector from "./BeachBallDetector.js";
-
-import NodeDeflectionDetector
-    from "./NodeDeflectionDetector.js";
-
-import ReverseRugDetector
-    from "./ReverseRugDetector.js";
-
-import RugDetector
-    from "./RugDetector.js";
-
-import RainbowRoadDetector
-    from "./RainbowRoadDetector.js";
-
-import WhipsawDetector
-    from "./WhipsawDetector.js";
-
-import PikaCloudDetector
-    from "./PikaCloudDetector.js";
+import NodeDeflectionDetector from "./NodeDeflectionDetector.js";
+import ReverseRugDetector from "./ReverseRugDetector.js";
+import RugDetector from "./RugDetector.js";
+import RainbowRoadDetector from "./RainbowRoadDetector.js";
+import WhipsawDetector from "./WhipsawDetector.js";
+import PikaCloudDetector from "./PikaCloudDetector.js";
 
 class HunterPatternEngine {
 
     constructor() {
 
+        this.version = "2.0.0";
+
         this.detectors = [
-
-        new NodeDeflectionDetector(),
-
-        new ReverseRugDetector(),
-
-        new RugDetector(),
-
-        new BeachBallDetector(),
-
-        new RainbowRoadDetector(),
-
-        new WhipsawDetector(),
-
-        new PikaCloudDetector()
-
-];
-
-
-        this.patternNames = [
-            "Node Deflection",
-            "Rug",
-            "Reverse Rug",
-            "Beach Ball",
-            "Rainbow Road",
-            "Whipsaw",
-            "Pike Cloud Regime"
+            new NodeDeflectionDetector(),
+            new ReverseRugDetector(),
+            new RugDetector(),
+            new BeachBallDetector(),
+            new RainbowRoadDetector(),
+            new WhipsawDetector(),
+            new PikaCloudDetector()
         ];
 
     }
 
-    analyze(marketState, structure) {
+    analyze(marketState = {}, structure = {}) {
 
-        const spot =
-            marketState?.spot ?? null;
+        const spot = marketState.spot ?? null;
 
-        const majorNodes =
-            this.getMajorNodes(structure);
+        const nearbyMajorNodes = this.collectMajorNodes(structure)
+            .filter(node => {
+                const distance =
+                    node.absoluteDistanceInStrikes ??
+                    Math.abs((spot ?? 0) - node.strike);
 
-        const nearbyMajorNodes =
-            majorNodes
-                .map(node => ({
+                return distance <= 2;
+            })
+            .sort((a, b) => {
+                const da =
+                    a.absoluteDistanceInStrikes ??
+                    Math.abs((spot ?? 0) - a.strike);
 
-                    ...node,
+                const db =
+                    b.absoluteDistanceInStrikes ??
+                    Math.abs((spot ?? 0) - b.strike);
 
-                    distanceFromSpot:
-                        spot !== null
-                            ? Math.abs(
-                                node.strike - spot
-                            )
-                            : null
+                return da - db;
+            });
 
-                }))
-                .filter(node =>
-                    node.distanceFromSpot !== null &&
-                    node.distanceFromSpot <= 2
-                )
-                .sort(
-                    (a, b) =>
-                        a.distanceFromSpot -
-                        b.distanceFromSpot
-                );
+        const primaryNode = nearbyMajorNodes[0] ?? null;
 
-        const primaryNode =
-            nearbyMajorNodes[0] || null;
-
-        const locationEligible =
-            primaryNode !== null;
-
-        const requiredData = [];
-
-        //--------------------------------------------------
-        // Constitution Rule #1
-        //--------------------------------------------------
-
-        if (!locationEligible) {
+        if (!primaryNode) {
 
             return {
-
                 version: this.version,
-
                 status: "INELIGIBLE",
-
                 locationEligible: false,
-
                 nearMajorNode: false,
-
                 primaryNode: null,
-
                 nearbyMajorNodes: [],
-
                 detectedPatterns: [],
-
                 candidatePatterns: [],
-
+                requiredData: [],
                 reason:
-                    "Price is not within two strikes of a major institutional node. Hunter does not trade midpoints.",
-
-                requiredData
-
+                    "Price is not within two strikes of a major institutional node."
             };
 
         }
 
-        //--------------------------------------------------
-        // Pattern snapshots
-        //--------------------------------------------------
-
         const currentSnapshot = {
-
-        spot,
-
-        primaryNode,
-
-        nodes: structure.nodes,
-
-        structure
-
-};
+            spot,
+            primaryNode,
+            nodes: structure.nodes ?? structure,
+            structure
+        };
 
         const previousSnapshot =
-            marketState?.previousSnapshot ??
-            null;
+            marketState.previousSnapshot ?? null;
 
-        //--------------------------------------------------
-        // Evaluate Pattern Detectors
-        //--------------------------------------------------
+        const patternResults = this.detectors.map(detector => {
 
-        const patternResults =
-        this.detectors.map(detector =>
-        detector.analyze(
-            currentSnapshot,
-            previousSnapshot
-        )
-    );
+            try {
+                return detector.analyze(
+                    currentSnapshot,
+                    previousSnapshot
+                );
+            }
+            catch (error) {
 
-        //--------------------------------------------------
-        // Candidate Patterns
-        //--------------------------------------------------
+                return {
+                    name: detector.constructor.name,
+                    stage: "ERROR",
+                    confidence: 0,
+                    confirmed: false,
+                    reason: error.message
+                };
 
-        const candidatePatterns =
-            patternResults
-                .filter(result =>
-                    result &&
-                    result.stage !==
-                        "WAITING_FOR_HISTORY" &&
-                    result.stage !==
-                        "NO_LOCATION"
-                )
-                .map(result => ({
+            }
 
-                    name: result.name,
+        });
 
-                    stage: result.stage,
+        const normalize = result => ({
 
-                    confidence:
-                        result.confidence,
+            name: result.name,
+            stage: result.stage,
+            confidence: result.confidence ?? 0,
+            direction: result.direction ?? null,
+            strike: result.strike ?? primaryNode.strike,
+            nodeRole: result.nodeRole ?? primaryNode.role,
+            distanceFromSpot:
+                result.distanceFromSpot ??
+                primaryNode.absoluteDistanceFromSpot,
+            reason: result.reason,
+            confirmed:
+                result.confirmed === true ||
+                result.detected === true
 
-                    direction:
-                        result.direction,
-
-                    strike:
-                        result.strike ??
-                        primaryNode.strike,
-
-                    nodeRole:
-                        result.nodeRole ??
-                        primaryNode.role,
-
-                    distanceFromSpot:
-                        result.distanceFromSpot ??
-                        primaryNode.distanceFromSpot,
-
-                    reason:
-                        result.reason
-
-                }));
-
-        //--------------------------------------------------
-        // Confirmed Patterns
-        //--------------------------------------------------
-
-        const detectedPatterns =
-            patternResults
-                .filter(result =>
-                    result?.confirmed === true
-                )
-                .map(result => ({
-
-                    name: result.name,
-
-                    stage: result.stage,
-
-                    confidence:
-                        result.confidence,
-
-                    direction:
-                        result.direction,
-
-                    strike:
-                        result.strike ??
-                        primaryNode.strike,
-
-                    nodeRole:
-                        result.nodeRole ??
-                        primaryNode.role,
-
-                    distanceFromSpot:
-                        result.distanceFromSpot ??
-                        primaryNode.distanceFromSpot,
-
-                    reason:
-                        result.reason
-
-                }));
-
-        //--------------------------------------------------
-        // Required historical data
-        //--------------------------------------------------
-
-        requiredData.push(
-            "priceHistory",
-            "nodeMagnitudeHistory",
-            "nodeStrikeHistory"
-        );
-
-        //--------------------------------------------------
-        // Result
-        //--------------------------------------------------
+        });
 
         return {
 
             version: this.version,
 
             status:
-                detectedPatterns.length > 0
+                patternResults.some(r => r.confirmed || r.detected)
                     ? "PATTERN_ACTIVE"
                     : "ELIGIBLE_WAITING_FOR_PATTERN_DATA",
 
             locationEligible: true,
-
             nearMajorNode: true,
 
             primaryNode,
-
             nearbyMajorNodes,
 
-            detectedPatterns,
+            detectedPatterns:
+                patternResults
+                    .filter(r => r.confirmed || r.detected)
+                    .map(normalize),
 
-            candidatePatterns,
+            candidatePatterns:
+                patternResults
+                    .filter(r =>
+                        r.stage !== "WAITING_FOR_HISTORY" &&
+                        r.stage !== "NO_LOCATION")
+                    .map(normalize),
+
+            requiredData: [
+                "priceHistory",
+                "nodeMagnitudeHistory",
+                "nodeStrikeHistory"
+            ],
 
             reason:
-                "Price is within two strikes of a major institutional node. Pattern evaluation is permitted.",
-
-            requiredData
+                "Pattern evaluation completed."
 
         };
 
     }
 
-    getMajorNodes(structure) {
+    collectMajorNodes(structure) {
 
-        const candidates = [
+        const nodes = [];
 
-            {
-                role: "King Gamma",
-                node:
-                    structure?.kingGammaNode
-            },
+        const add = node => {
 
-            {
-                role: "Strongest Above",
-                node:
-                    structure
-                        ?.strongestNodeAboveSpot
-            },
-
-            {
-                role: "Strongest Below",
-                node:
-                    structure
-                        ?.strongestNodeBelowSpot
+            if (!node || typeof node.strike !== "number") {
+                return;
             }
 
-        ];
-
-        const uniqueNodes =
-            new Map();
-
-        for (const candidate of candidates) {
-
-            const node =
-                candidate.node;
-
-            if (
-                !node ||
-                typeof node.strike !== "number"
-            ) {
-
-                continue;
-
+            if (!nodes.some(n => n.strike === node.strike)) {
+                nodes.push(node);
             }
 
-            const existing =
-                uniqueNodes.get(node.strike);
+        };
 
-            if (!existing) {
+        add(structure.kingNode);
+        add(structure.floor);
+        add(structure.ceiling);
+        add(structure.nearestNode);
 
-                uniqueNodes.set(
-                    node.strike,
-                    {
-                        ...node,
-                        role: candidate.role
-                    }
-                );
+        (structure.gatekeepers ?? []).forEach(add);
+        (structure.nearbyNodes ?? []).forEach(add);
 
-                continue;
-
-            }
-
-            /*
-             * King Gamma takes precedence when
-             * one strike has multiple roles.
-             */
-
-            if (
-                candidate.role ===
-                "King Gamma"
-            ) {
-
-                uniqueNodes.set(
-                    node.strike,
-                    {
-                        ...node,
-                        role: candidate.role
-                    }
-                );
-
-            }
-
+        if (structure.fortress?.nodes) {
+            structure.fortress.nodes.forEach(add);
         }
 
-        return [
-            ...uniqueNodes.values()
-        ];
+        (structure.fortresses ?? []).forEach(fortress => {
+            (fortress.nodes ?? []).forEach(add);
+        });
+
+        return nodes;
 
     }
 

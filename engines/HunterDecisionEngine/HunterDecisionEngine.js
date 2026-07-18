@@ -367,22 +367,43 @@ class HunterDecisionEngine {
         ledger
     ) {
 
+    const map =
+        snapshot.map ??
+        snapshot.structure?.map ??
+        snapshot.nodes ??
+        {};
+
+        console.log({
+        hasNearestNode: !!map.nearestNode,
+        nearestNode: map.nearestNode,
+        distance: map.nearestNode?.absoluteDistanceInStrikes
+        });
+        
         const location =
             this.resolveSection(
-                snapshot,
-                "location"
-            ) ??
-            {};
+            snapshot,
+            "location"
+            ) ?? {};
 
-        const passed =
-            location.eligible === true ||
-            location.nearMajorNode === true ||
-            location.passed === true;
-
-        const primaryNode =
+        const nearestNode =
+            map.nearestNode ??
             location.primaryNode ??
             location.nearestNode ??
             null;
+
+        const distanceInStrikes =
+            nearestNode?.absoluteDistanceInStrikes ??
+            Number.POSITIVE_INFINITY;
+
+        const nearMajorNode =
+            distanceInStrikes <= 2;
+
+        const passed =
+            nearMajorNode ||
+            location.eligible === true ||
+            location.passed === true;
+
+        const primaryNode = nearestNode;
 
         if (passed) {
 
