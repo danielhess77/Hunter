@@ -1,12 +1,19 @@
 /**
  * Hunter Base Pattern Detector
- * Version: 1.1.0
+ * Version: 2.0.0
  *
- * Provides a consistent result contract for
- * Hunter's institutional pattern detectors.
+ * Foundation class for all Hunter institutional
+ * pattern detectors.
  *
- * Pattern-specific trading logic remains inside
- * each individual detector.
+ * Responsibilities:
+ * - Standardized detector result contract
+ * - Common runtime states
+ * - Shared confidence levels
+ * - Stage constants
+ * - Common detector metadata
+ *
+ * Individual detectors are responsible ONLY for
+ * their pattern-specific logic.
  */
 
 class BasePatternDetector {
@@ -23,35 +30,87 @@ class BasePatternDetector {
 
         this.name = name;
 
+        this.version = "2.0.0";
+
+        this.type = "PATTERN";
+
+        //--------------------------------------------------
+        // Standard Pattern Stages
+        //--------------------------------------------------
+
+        this.STAGES = {
+
+            WATCHING: "WATCHING",
+
+            APPROACH: "APPROACH",
+
+            CONTACT: "CONTACT",
+
+            REJECTION: "REJECTION",
+
+            CONFIRMED: "CONFIRMED",
+
+            WAITING_FOR_HISTORY: "WAITING_FOR_HISTORY",
+
+            NO_LOCATION: "NO_LOCATION"
+
+        };
+
+        //--------------------------------------------------
+        // Standard Confidence Levels
+        //--------------------------------------------------
+
+        this.CONFIDENCE = {
+
+            WATCHING: 10,
+
+            APPROACH: 30,
+
+            CONTACT: 50,
+
+            REJECTION: 60,
+
+            CONFIRMED: 90
+
+        };
+
     }
 
     //--------------------------------------------------
-    // Standard Pattern Result
+    // Standard Result Factory
     //--------------------------------------------------
 
     createResult({
 
         detected = false,
 
-        stage = "WATCHING",
+        stage = this.STAGES.WATCHING,
 
         confidence = 0,
 
         direction = null,
 
-        reason = "",
-
         strike = null,
 
         nodeRole = null,
 
-        distanceFromSpot = null
+        node = null,
+
+        distanceFromSpot = null,
+
+        evidence = [],
+
+        reason = ""
 
     } = {}) {
 
         return {
 
             name: this.name,
+
+            version: this.version,
+
+            type: this.type,
 
             detected,
 
@@ -67,26 +126,35 @@ class BasePatternDetector {
 
             nodeRole,
 
+            node,
+
             distanceFromSpot,
 
-            reason
+            evidence,
+
+            reason,
+
+            timestamp: Date.now()
 
         };
 
     }
 
     //--------------------------------------------------
-    // Common Runtime States
+    // Runtime States
     //--------------------------------------------------
 
-    waitingForHistory(currentSnapshot) {
+    waitingForHistory(currentSnapshot = {}) {
 
         const node =
-            currentSnapshot?.primaryNode ?? null;
+            currentSnapshot.location?.primaryNode ??
+            currentSnapshot.primaryNode ??
+            null;
 
         return this.createResult({
 
-            stage: "WAITING_FOR_HISTORY",
+            stage:
+                this.STAGES.WAITING_FOR_HISTORY,
 
             confidence: 0,
 
@@ -96,58 +164,79 @@ class BasePatternDetector {
             nodeRole:
                 node?.role ?? null,
 
+            node,
+
             distanceFromSpot:
                 node?.distanceFromSpot ?? null,
 
             reason:
-                "No previous snapshot."
+                "Waiting for previous snapshot."
 
         });
 
     }
+
+    //--------------------------------------------------
 
     noLocation() {
 
         return this.createResult({
 
-            stage: "NO_LOCATION",
+            stage:
+                this.STAGES.NO_LOCATION,
 
             confidence: 0,
 
             reason:
-                "No major institutional node."
+                "No eligible institutional node."
 
         });
 
     }
 
     //--------------------------------------------------
-    // Shared Confidence Calculator
+    // Shared Confidence Helper
     //--------------------------------------------------
 
     calculateConfidence(stage) {
 
-        switch (stage) {
+        return this.CONFIDENCE[stage] || 0;
 
-            case "WATCHING":
-                return 10;
+    }
 
-            case "APPROACH":
-                return 30;
+    //--------------------------------------------------
+    // Shared Evidence Helper
+    //--------------------------------------------------
 
-            case "CONTACT":
-                return 50;
+    addEvidence(evidence, item) {
 
-            case "REJECTION":
-                return 60;
+        if (!item)
+            return;
 
-            case "CONFIRMED":
-                return 90;
+        if (!Array.isArray(evidence))
+            return;
 
-            default:
-                return 0;
+        if (!evidence.includes(item))
+            evidence.push(item);
+
+    }
+
+    //--------------------------------------------------
+    // Shared Node Distance Helper
+    //--------------------------------------------------
+
+    calculateStrikeDistance(spot, strike) {
+
+        if (
+            spot == null ||
+            strike == null
+        ) {
+
+            return null;
 
         }
+
+        return Math.abs(spot - strike);
 
     }
 

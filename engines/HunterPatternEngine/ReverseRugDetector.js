@@ -1,178 +1,225 @@
 /**
- * Reverse Rug Detector
- * Version: 1.1.0
+ * ------------------------------------------------------------
+ * Hunter Reverse Rug Detector
+ * Version 2.5
  *
- * Detects the early formation of a
- * Reverse Rug institutional pattern.
+ * Compatible with current Hunter architecture.
+ *
+ * Detects:
+ *     Reverse Rug
+ *
+ * Does NOT perform:
+ *     - Trade grading
+ *     - Relative Strength
+ *     - Options Flow
+ *     - Dark Pools
+ *     - Execution
+ *
+ * ------------------------------------------------------------
  */
 
-import BasePatternDetector
-    from "./BasePatternDetector.js";
+class HunterReverseRugDetector {
 
-class ReverseRugDetector
-    extends BasePatternDetector {
+    detect(currentSnapshot, previousSnapshot = null) {
 
-    constructor() {
+        const result = {
+            pattern: "Reverse Rug",
+            detected: false,
+            confidence: 0,
+            stage: "NONE",
+            evidence: []
+        };
 
-        super("Reverse Rug");
+        //--------------------------------------------------------
+        // Snapshot validation
+        //--------------------------------------------------------
 
-    }
+        if (!currentSnapshot)
+            return result;
 
-    analyze(currentSnapshot, previousSnapshot) {
+        if (!currentSnapshot.location)
+            return result;
 
-        //--------------------------------------------------
-        // Validation
-        //--------------------------------------------------
+        if (!currentSnapshot.location.eligible)
+            return result;
 
-        if (!previousSnapshot) {
+        //--------------------------------------------------------
+        // Gate 1
+        // Institutional Location
+        //--------------------------------------------------------
 
-            return this.waitingForHistory(
-                currentSnapshot
+        const node = currentSnapshot.location.primaryNode;
+
+        if (!node)
+            return result;
+
+        const allowedRoles = [
+            "KING",
+            "FLOOR",
+            "FORTRESS",
+            "GATEKEEPER"
+        ];
+
+        if (!allowedRoles.includes(node.role))
+            return result;
+
+        if (node.gammaSigned <= 0)
+            return result;
+
+        result.confidence += 40;
+
+        result.evidence.push(
+            "Positive institutional support nearby."
+        );
+
+        //--------------------------------------------------------
+        // Gate 2
+        // Institutional Structure
+        //--------------------------------------------------------
+
+        const nodes = currentSnapshot.structure?.nodes || [];
+
+        const overheadNegative = nodes.some(n =>
+            n.strike > currentSnapshot.identity.spot &&
+            n.gammaSigned < 0
+        );
+
+        if (!overheadNegative)
+            return result;
+
+        result.confidence += 25;
+
+        result.evidence.push(
+            "Negative Gamma air pocket above price."
+        );
+
+        //--------------------------------------------------------
+        // Future Compatibility
+        //--------------------------------------------------------
+
+        if (node.state) {
+
+            if (
+                node.state === "BUILDING" ||
+                node.state === "STABLE"
+            ) {
+
+                result.confidence += 10;
+
+                result.evidence.push(
+                    "Support is stable/building."
+                );
+
+            }
+
+            if (node.state === "WEAKENING")
+                return result;
+        }
+
+        //--------------------------------------------------------
+        // Migration Bonus
+        //--------------------------------------------------------
+
+        if (
+            currentSnapshot.structure &&
+            currentSnapshot.structure.migration
+        ) {
+
+            if (
+                currentSnapshot.structure.migration === "UP"
+            ) {
+
+                result.confidence += 10;
+
+                result.evidence.push(
+                    "Institutional structure migrating higher."
+                );
+
+            }
+
+            if (
+                currentSnapshot.structure.migration === "DOWN"
+            )
+                return result;
+
+        }
+
+        //--------------------------------------------------------
+        // Trigger
+        //--------------------------------------------------------
+
+        let trigger = false;
+
+        if (
+            previousSnapshot &&
+            previousSnapshot.identity
+        ) {
+
+            const previousSpot =
+                previousSnapshot.identity.spot;
+
+            const currentSpot =
+                currentSnapshot.identity.spot;
+
+            // Bounce
+
+            if (
+                previousSpot <= node.strike &&
+                currentSpot > previousSpot
+            ) {
+
+                trigger = true;
+
+                result.evidence.push(
+                    "Bounce from institutional support."
+                );
+
+            }
+
+            // Reclaim
+
+            if (
+                previousSpot < node.strike &&
+                currentSpot >= node.strike
+            ) {
+
+                trigger = true;
+
+                result.evidence.push(
+                    "Support successfully reclaimed."
+                );
+
+            }
+
+        }
+        else {
+
+            trigger = true;
+
+            result.evidence.push(
+                "Institutional setup present."
             );
 
         }
 
-        if (!currentSnapshot.primaryNode) {
+        if (!trigger)
+            return result;
 
-            return this.noLocation();
+        //--------------------------------------------------------
+        // Success
+        //--------------------------------------------------------
 
-        }
+        result.detected = true;
 
-        //--------------------------------------------------
-        // Current state
-        //--------------------------------------------------
+        result.stage = "CONFIRMED";
 
-        const node =
-            currentSnapshot.primaryNode;
+        result.confidence =
+            Math.min(result.confidence, 100);
 
-        //----------------------------------------------------
-        // Find the next three strikes above the floor
-        //----------------------------------------------------
-
-        const nodes =
-            currentSnapshot.nodes || [];
-
-        const currentIndex =
-            nodes.findIndex(
-                n => n.strike === node.strike
-        );
-
-        const nextThreeStrikes =
-            currentIndex >= 0
-
-                ? nodes.slice(
-                currentIndex + 1,
-                currentIndex + 4
-        )
-
-        : [];
-
-        //----------------------------------------------------
-        // Validate institutional fuel
-        //----------------------------------------------------
-
-        const hasFuel =
-
-            nextThreeStrikes.length === 3 &&
-
-            nextThreeStrikes.every(node =>
-
-                node.gammaNet < 0
-
-    );
-
-        const nearFloor =
-            node?.isFloor === true;
-
-        const currentSpot =
-            currentSnapshot.spot;
-
-        const previousSpot =
-            previousSnapshot.spot;
-
-        let detected = false;
-
-        let stage = "WATCHING";
-
-        let direction = "Bullish";
-
-        let confidence = 100;
-
-        let reason =
-            "Reverse Rug not detected.";
-
-        if (hasFuel) {
-
-            detected = true;
-
-            stage = "CONFIRMED";
-
-            reason =
-                "Valid institutional floor with negative gamma fuel above.";
-
-}
-
-        //--------------------------------------------------
-        // Simple prototype logic
-        //--------------------------------------------------
-
-        if (
-            nearFloor &&
-            currentSpot > previousSpot
-        ) {
-
-            stage = "BUILDING";
-
-            confidence = 35;
-
-            reason =
-                "Price is lifting from an institutional floor.";
-
-        }
-
-        if (
-            nearFloor &&
-            currentSpot > node.strike
-        ) {
-
-            stage = "CONFIRMED";
-
-            confidence = 70;
-
-            confirmed = true;
-
-            reason =
-                "Price has reclaimed institutional support.";
-
-        }
-
-        //--------------------------------------------------
-        // Return
-        //--------------------------------------------------
-
-        return this.createResult({
-
-            detected,
-
-            stage,
-
-            confidence,
-
-            direction,
-
-            strike: node.strike,
-
-            nodeRole: node.role,
-
-            distanceFromSpot:
-                node.distanceFromSpot,
-
-            reason
-
-});
+        return result;
 
     }
 
 }
 
-export default ReverseRugDetector;
+module.exports = HunterReverseRugDetector;
