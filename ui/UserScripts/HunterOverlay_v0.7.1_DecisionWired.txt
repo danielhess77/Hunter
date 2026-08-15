@@ -1,0 +1,755 @@
+// ==UserScript==
+// @name         Hunter Overlay v0.7.1 DecisionWired
+// @namespace    hunter-sentinel-ai
+// @version      0.7.1
+// @description  Live Hunter with wired Decision engine - clean encoding for iPad
+// @match        https://app.skylit.ai/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    "use strict";
+
+    //======================================================
+    // CONFIG
+    //======================================================
+
+    const HUNTER_CONFIG = {
+        version: "0.7.1",
+        panelId: "hunter-overlay-v071",
+        contentId: "hunter-v071-content",
+        majorNodeDistance: 2,
+        maxSnapshotsPerSymbol: 80,
+        duplicateWindowMs: 300,
+        matrixUrlFragments: ["/api/data", "heatseeker", "matrix"]
+    };
+
+    //======================================================
+    // STATE
+    //======================================================
+
+    const HUNTER_STATE = {
+        latestResult: null,
+        latestPayloadSignature: null,
+        latestPayloadTime: 0,
+        activeSymbol: null,
+        connected: false,
+        processing: false,
+        updateCount: 0,
+        lastError: null,
+        symbolHistory: new Map()
+    };
+
+    //======================================================
+    // FETCH INTERCEPTION
+    //======================================================
+
+    const originalFetch = window.fetch.bind(window);
+
+    window.fetch = async function (...args) {
+        const response = await originalFetch(...args);
+        const responseClone = response.clone();
+
+        try {
+            const requestUrl = getRequestUrl(args[0]);
+            if (shouldInspectResponse(requestUrl, responseClone)) {
+                processPossibleHunterPayload(responseClone, requestUrl);
+            }
+        } catch (error) {
+            handleHunterError("Fetch interception failed", error);
+        }
+
+        return response;
+    };
+
+    function getRequestUrl(requestInput) {
+        if (typeof requestInput === "string") return requestInput;
+        if (requestInput && typeof requestInput.url === "string") return requestInput.url;
+        return "";
+    }
+
+    function shouldInspectResponse(requestUrl, response) {
+        if (!response || !response.ok) return false;
+        if (!requestUrl) {
+            const contentType = response.headers?.get("content-type") || "";
+            return contentType.includes("json");
+        }
+        const normalized = requestUrl.toLowerCase();
+        return HUNTER_CONFIG.matrixUrlFragments.some(f => normalized.includes(f.toLowerCase()));
+    }
+
+    //======================================================
+    // PAYLOAD PROCESSING
+    //======================================================
+
+    async function processPossibleHunterPayload(responseClone, requestUrl) {
+        if (HUNTER_STATE.processing) return;
+
+        try {
+            const contentType = responseClone.headers?.get("content-type") || "";
+            if (contentType && !contentType.includes("json")) return;
+
+            const rawData = await responseClone.json();
+            const matrix = findHeatseekerMatrix(rawData);
+            if (!matrix) return;
+
+            const signature = createPayloadSignature(matrix);
+            const now = Date.now();
+
+            if (
+                signature === HUNTER_STATE.latestPayloadSignature &&
+                now - HUNTER_STATE.latestPayloadTime < HUNTER_CONFIG.duplicateWindowMs
+            ) {
+                return;
+            }
+
+            HUNTER_STATE.processing = true;
+            HUNTER_STATE.latestPayloadSignature = signature;
+            HUNTER_STATE.latestPayloadTime = now;
+
+            const result = analyzeMatrix(matrix);
+
+            HUNTER_STATE.latestResult = result;
+            HUNTER_STATE.activeSymbol = result.marketState.symbol;
+            HUNTER_STATE.connected = true;
+            HUNTER_STATE.updateCount += 1;
+            HUNTER_STATE.lastError = null;
+
+            renderHunterOverlay(result);
+
+        } catch (error) {
+            handleHunterError("Unable to process " + (requestUrl || "Skylit response"), error);
+        } finally {
+            HUNTER_STATE.processing = false;
+        }
+    }
+
+    //======================================================
+    // MATRIX DISCOVERY
+    //======================================================
+
+    function findHeatseekerMatrix(rawData) {
+        if (!rawData || typeof rawData !== "object") return null;
+
+        if (isHeatseekerMatrix(rawData)) return rawData;
+        if (rawData.data && isHeatseekerMatrix(rawData.data)) return rawData.data;
+        if (rawData.payload && isHeatseekerMatrix(rawData.payload)) return rawData.payload;
+        if (rawData.result && isHeatseekerMatrix(rawData.result)) return rawData.result;
+
+        const queue = [rawData];
+        const visited = new Set();
+
+        while (queue.length) {
+            const current = queue.shift();
+            if (!current || typeof current !== "object" || visited.has(current)) continue;
+            visited.add(current);
+
+            if (isHeatseekerMatrix(current)) return current;
+
+            for (const value of Object.values(current)) {
+                if (value && typeof value === "object") queue.push(value);
+            }
+        }
+        return null;
+    }
+
+    function isHeatseekerMatrix(candidate) {
+        if (!candidate || typeof candidate !== "object") return false;
+        const strikes = candidate.Strikes || candidate.strikes;
+        const gamma = candidate.GammaValues || candidate.gamma;
+        return Array.isArray(strikes) && Array.isArray(gamma) && strikes.length > 0;
+    }
+
+    function createPayloadSignature(matrix) {
+        const symbol = matrix.symbol || matrix.Symbol || "Unknown";
+        const spot = matrix.CurrentSpot ?? matrix.currentSpot ?? matrix.spot ?? "N/A";
+        const updated = matrix.LastUpdated || matrix.lastUpdated || matrix.timestamp || "";
+        const strikes = matrix.Strikes || matrix.strikes || [];
+        const gamma = matrix.GammaValues || matrix.gamma || [];
+        return [symbol, spot, updated, strikes.length, strikes[0], strikes[strikes.length - 1], gamma.length].join("|");
+    }
+
+    //======================================================
+    // CORE ANALYSIS PIPELINE
+    //======================================================
+
+    function analyzeMatrix(matrix) {
+        const marketState = buildMarketState(matrix);
+        const nodes = buildInstitutionalNodes(marketState);
+        const structure = buildInstitutionalStructure(nodes, marketState.spot);
+        const patterns = analyzePatterns(marketState, structure);
+        const decision = analyzeDecision(structure, patterns);
+
+        const result = {
+            runtimeVersion: HUNTER_CONFIG.version,
+            generatedAt: new Date().toISOString(),
+            marketState,
+            nodes,
+            structure,
+            patterns,
+            decision
+        };
+
+        recordSnapshot(result);
+        return result;
+    }
+
+    function buildMarketState(matrix) {
+        return {
+            symbol: matrix.symbol || matrix.Symbol || "Unknown",
+            spot: toFiniteNumber(matrix.CurrentSpot ?? matrix.currentSpot ?? matrix.spot),
+            strikes: Array.isArray(matrix.Strikes) ? matrix.Strikes : (matrix.strikes || []),
+            gamma: Array.isArray(matrix.GammaValues) ? matrix.GammaValues : (matrix.gamma || []),
+            vanna: Array.isArray(matrix.VannaValues) ? matrix.VannaValues : (matrix.vanna || []),
+            timestamp: matrix.LastUpdated || matrix.lastUpdated || new Date().toISOString()
+        };
+    }
+
+    function buildInstitutionalNodes(marketState) {
+        const nodes = [];
+        const { strikes, gamma, vanna, spot } = marketState;
+
+        for (let i = 0; i < strikes.length; i++) {
+            const strike = Number(strikes[i]);
+            const gammaRow = gamma[i] || [];
+            const vannaRow = vanna[i] || [];
+
+            const gammaMagnitude = sumAbsolute(gammaRow);
+            const vannaMagnitude = sumAbsolute(vannaRow);
+            const distance = spot !== null ? strike - spot : null;
+
+            nodes.push({
+                strike,
+                gamma: gammaRow,
+                vanna: vannaRow,
+                gammaMagnitude,
+                vannaMagnitude,
+                distance,
+                absDistance: distance !== null ? Math.abs(distance) : null
+            });
+        }
+        return nodes;
+    }
+
+    function buildInstitutionalStructure(nodes, spot) {
+        const byGamma = [...nodes].sort((a, b) => b.gammaMagnitude - a.gammaMagnitude);
+        const byVanna = [...nodes].sort((a, b) => b.vannaMagnitude - a.vannaMagnitude);
+
+        const kingGammaNode = byGamma[0] || null;
+        const kingVannaNode = byVanna[0] || null;
+
+        const strongestNodeAboveSpot = nodes
+            .filter(n => spot !== null && n.strike > spot)
+            .sort((a, b) => b.gammaMagnitude - a.gammaMagnitude)[0] || null;
+
+        const strongestNodeBelowSpot = nodes
+            .filter(n => spot !== null && n.strike < spot)
+            .sort((a, b) => b.gammaMagnitude - a.gammaMagnitude)[0] || null;
+
+        let nearestNode = null;
+        let nearestDistance = Number.MAX_VALUE;
+
+        if (spot !== null) {
+            for (const node of nodes) {
+                const d = Math.abs(node.strike - spot);
+                if (d < nearestDistance) {
+                    nearestDistance = d;
+                    nearestNode = node;
+                }
+            }
+        }
+
+        const nearbyNodes = nodes
+            .filter(n => n.absDistance !== null && n.absDistance <= HUNTER_CONFIG.majorNodeDistance)
+            .sort((a, b) => a.absDistance - b.absDistance);
+
+        return {
+            nodes,
+            kingGammaNode,
+            kingVannaNode,
+            kingNode: kingGammaNode,
+            strongestNodeAboveSpot,
+            strongestNodeBelowSpot,
+            nearestNode,
+            nearestDistance: nearestNode ? nearestDistance : null,
+            nearbyNodes
+        };
+    }
+
+    //======================================================
+    // PATTERN ENGINE
+    //======================================================
+
+    function analyzePatterns(marketState, structure) {
+        const spot = marketState.spot;
+        const majorNodes = getMajorNodes(structure);
+
+        const nearbyMajorNodes = majorNodes
+            .map(node => ({
+                ...node,
+                distanceFromSpot: spot !== null ? Math.abs(node.strike - spot) : null
+            }))
+            .filter(n => n.distanceFromSpot !== null && n.distanceFromSpot <= HUNTER_CONFIG.majorNodeDistance)
+            .sort((a, b) => a.distanceFromSpot - b.distanceFromSpot);
+
+        const primaryNode = nearbyMajorNodes[0] || null;
+        const locationEligible = primaryNode !== null;
+
+        if (!locationEligible) {
+            return {
+                status: "INELIGIBLE",
+                locationEligible: false,
+                primaryNode: null,
+                nearbyMajorNodes: [],
+                detectedPatterns: [],
+                candidatePatterns: [],
+                reason: "Price is not within two strikes of a major institutional node."
+            };
+        }
+
+        const direction = primaryNode.strike < spot
+            ? "BULLISH_DEFLECTION_WATCH"
+            : primaryNode.strike > spot
+                ? "BEARISH_DEFLECTION_WATCH"
+                : "PIVOT_WATCH";
+
+        const candidate = {
+            name: "Node Deflection",
+            stage: "WATCHING",
+            confidence: 35,
+            direction,
+            strike: primaryNode.strike,
+            nodeRole: primaryNode.role,
+            distanceFromSpot: primaryNode.distanceFromSpot,
+            reason: "Price is near a major institutional node."
+        };
+
+        return {
+            status: "ELIGIBLE",
+            locationEligible: true,
+            primaryNode,
+            nearbyMajorNodes,
+            detectedPatterns: [],
+            candidatePatterns: [candidate],
+            reason: "Price is within two strikes of a major institutional node."
+        };
+    }
+
+    function getMajorNodes(structure) {
+        const candidates = [
+            { role: "King Gamma", node: structure.kingGammaNode },
+            { role: "Strongest Above", node: structure.strongestNodeAboveSpot },
+            { role: "Strongest Below", node: structure.strongestNodeBelowSpot }
+        ];
+
+        const unique = new Map();
+        for (const c of candidates) {
+            const node = c.node;
+            if (!node || typeof node.strike !== "number") continue;
+
+            const existing = unique.get(node.strike);
+            if (!existing || c.role === "King Gamma") {
+                unique.set(node.strike, { ...node, role: c.role });
+            }
+        }
+        return [...unique.values()];
+    }
+
+    //======================================================
+    // DECISION ENGINE
+    //======================================================
+
+    function analyzeDecision(structure, patterns) {
+        const reasons = [];
+        let score = 0;
+
+        if (!structure || typeof structure !== "object") {
+            return buildDecisionResult({
+                score: 0, grade: "Pass", action: "AVOID", direction: null,
+                confidence: 0, reasons: ["No institutional structure available."],
+                keyLevels: null, primaryPattern: null, locationEligible: false
+            });
+        }
+
+        const nearestNode = structure.nearestNode || null;
+        const nearestDistance = typeof structure.nearestDistance === "number" ? structure.nearestDistance : null;
+        const nearbyNodes = Array.isArray(structure.nearbyNodes) ? structure.nearbyNodes : [];
+        const kingGamma = structure.kingGammaNode || structure.kingNode || null;
+        const strongestAbove = structure.strongestNodeAboveSpot || null;
+        const strongestBelow = structure.strongestNodeBelowSpot || null;
+
+        // Use the same eligibility as Pattern engine
+        const locationEligible = patterns && patterns.locationEligible === true;
+        const nearMajorNode = locationEligible;
+
+        // Structure scoring (only when location eligible)
+        if (nearMajorNode && strongestBelow) {
+            score += 25;
+            reasons.push("Price is near institutional demand (strongest node below).");
+        }
+        if (nearMajorNode && strongestAbove) {
+            score += 10;
+            reasons.push("Institutional resistance exists above.");
+        }
+        if (nearMajorNode && kingGamma && nearestNode && Math.abs(kingGamma.strike - nearestNode.strike) <= 2) {
+            score += 20;
+            reasons.push("Trading near King Gamma.");
+        }
+        if (nearMajorNode && nearbyNodes.length >= 3) {
+            score += 12;
+            reasons.push("Multiple institutional nodes clustered nearby.");
+        }
+        if (nearMajorNode && nearbyNodes.length >= 5) {
+            score += 8;
+            reasons.push("High-density institutional liquidity zone.");
+        }
+
+        // Pattern integration
+        let primaryPattern = null;
+        let patternDirection = null;
+
+        if (patterns && typeof patterns === "object") {
+            const confirmed = Array.isArray(patterns.detectedPatterns) ? patterns.detectedPatterns : [];
+            const candidates = Array.isArray(patterns.candidatePatterns) ? patterns.candidatePatterns : [];
+
+            const ranked = [
+                ...confirmed.map(p => ({ ...p, _confirmed: true })),
+                ...candidates
+                    .filter(p => p && p.stage !== "WAITING_FOR_HISTORY" && p.stage !== "NO_LOCATION")
+                    .map(p => ({ ...p, _confirmed: false }))
+            ].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+
+            primaryPattern = ranked[0] || null;
+
+            if (primaryPattern) {
+                patternDirection = primaryPattern.direction || null;
+                const boost = primaryPattern._confirmed
+                    ? Math.min(35, Math.round((primaryPattern.confidence || 50) * 0.35))
+                    : Math.min(20, Math.round((primaryPattern.confidence || 30) * 0.25));
+                score += boost;
+                reasons.push(
+                    (primaryPattern._confirmed ? "Confirmed" : "Candidate") +
+                    " pattern: " + primaryPattern.name + " (" + primaryPattern.stage + ")."
+                );
+            } else if (locationEligible) {
+                reasons.push("Location eligible but no active pattern yet.");
+            } else if (patterns.reason) {
+                reasons.push(patterns.reason);
+            }
+        }
+
+        // Grade + Action
+        let grade = "Pass";
+        if (score >= 75) grade = "A";
+        else if (score >= 55) grade = "B";
+        else if (score >= 35) grade = "Watch";
+
+        let action = "AVOID";
+        if (!nearMajorNode) {
+            action = "AVOID";
+        } else if (score >= 70 && primaryPattern && primaryPattern._confirmed) {
+            action = "TAKE";
+        } else if (score >= 50 && (primaryPattern || nearMajorNode)) {
+            action = "SETUP";
+        } else if (score >= 30 || nearMajorNode) {
+            action = "WATCH";
+        }
+
+        // Direction
+        let direction = patternDirection;
+        if (!direction && nearMajorNode && nearestNode) {
+            if (strongestBelow && nearestNode.strike === strongestBelow.strike) {
+                direction = "BULLISH_BIAS";
+            } else if (strongestAbove && nearestNode.strike === strongestAbove.strike) {
+                direction = "BEARISH_BIAS";
+            } else {
+                direction = "NEUTRAL";
+            }
+        }
+
+        // Key Levels
+        const keyLevels = deriveKeyLevels({
+            nearestNode, strongestAbove, strongestBelow, kingGamma, nearbyNodes
+        });
+
+        // Confidence
+        let confidence = Math.min(95, Math.round(score * 0.9));
+        if (action === "AVOID") confidence = Math.min(confidence, 25);
+        if (action === "WATCH") confidence = Math.min(confidence, 45);
+        if (action === "SETUP") confidence = Math.max(confidence, 50);
+        if (action === "TAKE") confidence = Math.max(confidence, 70);
+
+        return buildDecisionResult({
+            score,
+            grade,
+            action,
+            direction,
+            confidence,
+            reasons,
+            keyLevels,
+            primaryPattern: primaryPattern ? {
+                name: primaryPattern.name,
+                stage: primaryPattern.stage,
+                confidence: primaryPattern.confidence,
+                direction: primaryPattern.direction,
+                strike: primaryPattern.strike,
+                confirmed: !!primaryPattern._confirmed
+            } : null,
+            locationEligible: nearMajorNode
+        });
+    }
+
+    function deriveKeyLevels({ nearestNode, strongestAbove, strongestBelow, kingGamma, nearbyNodes }) {
+        if (!nearestNode && !strongestAbove && !strongestBelow) return null;
+
+        const support = strongestBelow?.strike ?? null;
+        const resistance = strongestAbove?.strike ?? null;
+
+        let target = null;
+        let stop = null;
+
+        if (nearestNode) {
+            if (strongestAbove && nearestNode.strike <= strongestAbove.strike) {
+                target = strongestAbove.strike;
+            }
+            if (strongestBelow && nearestNode.strike >= strongestBelow.strike) {
+                stop = strongestBelow.strike;
+            }
+            if (!target && kingGamma && kingGamma.strike !== nearestNode.strike) {
+                target = kingGamma.strike;
+            }
+        }
+
+        return {
+            nearest: nearestNode?.strike ?? null,
+            support,
+            resistance,
+            kingGamma: kingGamma?.strike ?? null,
+            target,
+            stop,
+            nearbyStrikes: nearbyNodes.slice(0, 6).map(n => n.strike).filter(s => typeof s === "number")
+        };
+    }
+
+    function buildDecisionResult(data) {
+        return {
+            version: "0.8.0",
+            score: data.score,
+            grade: data.grade,
+            action: data.action,
+            direction: data.direction,
+            confidence: data.confidence,
+            reasons: data.reasons,
+            keyLevels: data.keyLevels,
+            primaryPattern: data.primaryPattern,
+            locationEligible: data.locationEligible
+        };
+    }
+
+    //======================================================
+    // HISTORY
+    //======================================================
+
+    function recordSnapshot(result) {
+        const symbol = result?.marketState?.symbol;
+        if (!symbol) return;
+
+        const history = HUNTER_STATE.symbolHistory.get(symbol) || [];
+        const snapshot = {
+            timestamp: result.generatedAt,
+            spot: result.marketState.spot,
+            kingGammaStrike: result.structure?.kingGammaNode?.strike ?? null,
+            action: result.decision?.action,
+            score: result.decision?.score
+        };
+
+        const updated = [...history, snapshot].slice(-HUNTER_CONFIG.maxSnapshotsPerSymbol);
+        HUNTER_STATE.symbolHistory.set(symbol, updated);
+    }
+
+    //======================================================
+    // HELPERS
+    //======================================================
+
+    function sumAbsolute(values) {
+        if (!Array.isArray(values)) return 0;
+        return values.reduce((sum, v) => sum + Math.abs(Number(v) || 0), 0);
+    }
+
+    function toFiniteNumber(value) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : null;
+    }
+
+    function handleHunterError(context, error) {
+        HUNTER_STATE.lastError = {
+            context,
+            message: error?.message || String(error),
+            timestamp: new Date().toISOString()
+        };
+        console.warn("[Hunter v" + HUNTER_CONFIG.version + "] " + context + ":", error);
+        renderHunterError(HUNTER_STATE.lastError);
+    }
+
+    //======================================================
+    // UI
+    //======================================================
+
+    function createHunterPanel() {
+        if (document.getElementById(HUNTER_CONFIG.panelId)) return;
+
+        const panel = document.createElement("div");
+        panel.id = HUNTER_CONFIG.panelId;
+        panel.style.cssText = [
+            "position: fixed",
+            "top: 12px",
+            "right: 12px",
+            "width: 340px",
+            "max-height: 85vh",
+            "overflow-y: auto",
+            "background: rgba(12, 14, 20, 0.96)",
+            "border: 1px solid #2a2f3a",
+            "border-radius: 10px",
+            "color: #e6e8ee",
+            "font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif",
+            "font-size: 12px",
+            "z-index: 999999",
+            "box-shadow: 0 8px 32px rgba(0,0,0,0.45)",
+            "backdrop-filter: blur(8px)"
+        ].join(";");
+
+        panel.innerHTML =
+            '<div style="padding: 10px 12px; border-bottom: 1px solid #2a2f3a; display:flex; justify-content:space-between; align-items:center;">' +
+                '<div style="font-weight:600; letter-spacing:0.3px;">Hunter <span style="opacity:0.6; font-weight:400;">v' + HUNTER_CONFIG.version + '</span></div>' +
+                '<div id="hunter-status-dot" style="width:8px; height:8px; border-radius:50%; background:#555;"></div>' +
+            '</div>' +
+            '<div id="' + HUNTER_CONFIG.contentId + '" style="padding: 12px;">' +
+                '<div style="opacity:0.6;">Waiting for Heatseeker matrix...</div>' +
+            '</div>';
+
+        document.body.appendChild(panel);
+    }
+
+    function renderHunterOverlay(result) {
+        createHunterPanel();
+
+        const content = document.getElementById(HUNTER_CONFIG.contentId);
+        const statusDot = document.getElementById("hunter-status-dot");
+        if (!content) return;
+
+        if (statusDot) statusDot.style.background = "#22c55e";
+
+        const d = result.decision || {};
+        const s = result.structure || {};
+        const m = result.marketState || {};
+        const p = result.patterns || {};
+        const kl = d.keyLevels || {};
+
+        const actionColor = {
+            TAKE: "#22c55e",
+            SETUP: "#3b82f6",
+            WATCH: "#eab308",
+            AVOID: "#ef4444"
+        }[d.action] || "#94a3b8";
+
+        const locationText = d.locationEligible
+            ? "Location eligible"
+            : "Not near major node";
+
+        const patternLine = d.primaryPattern
+            ? (d.primaryPattern.name + " - " + d.primaryPattern.stage +
+               (d.primaryPattern.confirmed ? " (CONFIRMED)" : ""))
+            : "No primary pattern";
+
+        content.innerHTML =
+            '<div style="margin-bottom:10px;">' +
+                '<div style="font-size:11px; opacity:0.55; margin-bottom:2px;">' +
+                    (m.symbol || "-") + "  Spot " + fmt(m.spot) +
+                '</div>' +
+                '<div style="display:flex; align-items:center; gap:8px; margin-bottom:6px;">' +
+                    '<span style="background:' + actionColor + '; color:#000; font-weight:700; padding:3px 8px; border-radius:4px; font-size:13px;">' +
+                        (d.action || "-") +
+                    '</span>' +
+                    '<span style="font-weight:600;">' + (d.direction || "-") + '</span>' +
+                '</div>' +
+                '<div style="display:flex; gap:12px; font-size:11px; opacity:0.8;">' +
+                    '<span>Score <b>' + (d.score ?? "-") + '</b></span>' +
+                    '<span>Grade <b>' + (d.grade || "-") + '</b></span>' +
+                    '<span>Conf <b>' + (d.confidence ?? "-") + '%</b></span>' +
+                '</div>' +
+            '</div>' +
+
+            '<div style="border-top:1px solid #2a2f3a; padding-top:8px; margin-bottom:8px;">' +
+                '<div style="font-size:10px; text-transform:uppercase; opacity:0.5; margin-bottom:4px;">Key Levels</div>' +
+                '<div style="display:grid; grid-template-columns:1fr 1fr; gap:4px 10px;">' +
+                    '<div>Nearest <b>' + fmt(kl.nearest) + '</b></div>' +
+                    '<div>King G <b>' + fmt(kl.kingGamma) + '</b></div>' +
+                    '<div>Support <b>' + fmt(kl.support) + '</b></div>' +
+                    '<div>Resist <b>' + fmt(kl.resistance) + '</b></div>' +
+                    '<div>Target <b>' + fmt(kl.target) + '</b></div>' +
+                    '<div>Stop <b>' + fmt(kl.stop) + '</b></div>' +
+                '</div>' +
+            '</div>' +
+
+            '<div style="border-top:1px solid #2a2f3a; padding-top:8px; margin-bottom:8px;">' +
+                '<div style="font-size:10px; text-transform:uppercase; opacity:0.5; margin-bottom:4px;">Structure</div>' +
+                '<div>King Gamma: <b>' + fmt(s.kingGammaNode?.strike) + '</b> (' + fmtMag(s.kingGammaNode?.gammaMagnitude) + ')</div>' +
+                '<div>Strongest Above: <b>' + fmt(s.strongestNodeAboveSpot?.strike) + '</b></div>' +
+                '<div>Strongest Below: <b>' + fmt(s.strongestNodeBelowSpot?.strike) + '</b></div>' +
+                '<div>Nearby nodes: <b>' + (s.nearbyNodes?.length ?? 0) + '</b></div>' +
+            '</div>' +
+
+            '<div style="border-top:1px solid #2a2f3a; padding-top:8px; margin-bottom:8px;">' +
+                '<div style="font-size:10px; text-transform:uppercase; opacity:0.5; margin-bottom:4px;">Pattern</div>' +
+                '<div>' + locationText + '</div>' +
+                '<div style="margin-top:4px;">' + patternLine + '</div>' +
+            '</div>' +
+
+            '<div style="border-top:1px solid #2a2f3a; padding-top:8px;">' +
+                '<div style="font-size:10px; text-transform:uppercase; opacity:0.5; margin-bottom:4px;">Reasons</div>' +
+                '<ul style="margin:0; padding-left:16px; opacity:0.85;">' +
+                    ((d.reasons || []).map(function (r) {
+                        return '<li style="margin-bottom:2px;">' + r + '</li>';
+                    }).join("") || '<li>None</li>') +
+                '</ul>' +
+            '</div>' +
+
+            '<div style="margin-top:10px; font-size:10px; opacity:0.4; text-align:right;">' +
+                '#' + HUNTER_STATE.updateCount + '  ' + new Date(result.generatedAt).toLocaleTimeString() +
+            '</div>';
+    }
+
+    function renderHunterError(err) {
+        createHunterPanel();
+        const content = document.getElementById(HUNTER_CONFIG.contentId);
+        const statusDot = document.getElementById("hunter-status-dot");
+        if (statusDot) statusDot.style.background = "#ef4444";
+        if (content) {
+            content.innerHTML =
+                '<div style="color:#f87171; font-weight:600; margin-bottom:4px;">Error</div>' +
+                '<div style="opacity:0.8;">' + err.context + '</div>' +
+                '<div style="opacity:0.6; margin-top:4px; font-size:11px;">' + err.message + '</div>';
+        }
+    }
+
+    function fmt(v) {
+        if (v === null || v === undefined) return "-";
+        if (typeof v === "number") {
+            return v.toFixed(2).replace(/\.00$/, "");
+        }
+        return String(v);
+    }
+
+    function fmtMag(v) {
+        if (v === null || v === undefined) return "-";
+        return Math.round(v).toLocaleString();
+    }
+
+    //======================================================
+    // BOOT
+    //======================================================
+
+    createHunterPanel();
+    console.log("[Hunter v" + HUNTER_CONFIG.version + "] Overlay ready - waiting for Heatseeker matrix");
+
+})();
