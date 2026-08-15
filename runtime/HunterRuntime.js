@@ -1,8 +1,16 @@
 /**
  * Hunter Runtime
- * Version: 0.8.0
+ * Version: 0.8.1
  *
  * Central analysis pipeline for Hunter.
+ *
+ * Cleanly wires:
+ *   DataConnector → MarketState
+ *   InstitutionalMapEngine → nodes
+ *   InstitutionalStructureEngine → structure
+ *   HunterPatternEngine → patterns
+ *   HunterDecisionEngine → decision (structure + patterns)
+ *   HunterMemory → snapshot history
  */
 
 import HunterMarketState from "./HunterMarketState.js";
@@ -29,6 +37,8 @@ import HunterPatternEngine
 class HunterRuntime {
 
     constructor() {
+
+        this.version = "0.8.1";
 
         this.dataConnector = new HunterDataConnector();
 
@@ -81,17 +91,17 @@ class HunterRuntime {
 
         const structure =
             this.structureEngine.analyze(
-            nodes,
-            this.marketState.spot,
-            previousSnapshot?.nodes || []
-    );
+                nodes,
+                this.marketState.spot,
+                previousSnapshot?.nodes || []
+            );
 
         //--------------------------------------------------
-        // Analyze Institutional Evolution
+        // Evolution (already attached by StructureEngine)
         //--------------------------------------------------
 
         const evolution =
-            structure.evolution;
+            structure.evolution || null;
 
         //--------------------------------------------------
         // Make history available to Pattern Engine
@@ -111,12 +121,13 @@ class HunterRuntime {
             );
 
         //--------------------------------------------------
-        // Decision Engine
+        // Decision Engine (now receives both structure + patterns)
         //--------------------------------------------------
 
         const decision =
             this.decisionEngine.analyze(
-                structure
+                structure,
+                patterns
             );
 
         //--------------------------------------------------
@@ -133,7 +144,11 @@ class HunterRuntime {
 
             nodes,
 
-            structure
+            structure,
+
+            patterns,
+
+            decision
 
         });
 
@@ -142,6 +157,10 @@ class HunterRuntime {
         //--------------------------------------------------
 
         return {
+
+            runtimeVersion: this.version,
+
+            generatedAt: new Date().toISOString(),
 
             marketState: this.marketState,
 
