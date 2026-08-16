@@ -1,0 +1,603 @@
+// ==UserScript==
+// @name         Hunter Overlay v0.8.3 PeakSize
+// @namespace    hunter-sentinel-ai
+// @version      0.8.3
+// @description  Live Hunter - peak node size (max abs), 25% of King, 60/40 VEX/GEX
+// @match        https://app.skylit.ai/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+    "use strict";
+
+    const HUNTER_CONFIG = {
+        version: "0.8.3",
+        panelId: "hunter-overlay-v083",
+        contentId: "hunter-v083-content",
+        majorNodeDistance: 2.5,
+        majorNodeThreshold: 0.25,
+        gammaWeight: 0.40,
+        vannaWeight: 0.60,
+        maxSnapshotsPerSymbol: 100,
+        duplicateWindowMs: 150,
+        matrixUrlFragments: ["/api/data", "heatseeker", "matrix", "gex", "vex", "gamma", "vanna"]
+    };
+
+    const HUNTER_STATE = {
+        latestResult: null,
+        latestPayloadSignature: null,
+        latestPayloadTime: 0,
+        activeSymbol: null,
+        connected: false,
+        processing: false,
+        updateCount: 0,
+        lastError: null,
+        lastMatrixType: null,
+        symbolHistory: new Map()
+    };
+
+    const originalFetch = window.fetch.bind(window);
+
+    window.fetch = async function (...args) {
+        const response = await originalFetch(...args);
+        const responseClone = response.clone();
+        try {
+            const requestUrl = getRequestUrl(args[0]);
+            if (shouldInspectResponse(requestUrl, responseClone)) {
+                processPossibleHunterPayload(responseClone, requestUrl);
+            }
+        } catch (error) {
+            handleHunterError("Fetch interception failed", error);
+        }
+        return response;
+    };
+
+    function getRequestUrl(requestInput) {
+        if (typeof requestInput === "string") return requestInput;
+        if (requestInput && typeof requestInput.url === "string") return requestInput.url;
+        return "";
+    }
+
+    function shouldInspectResponse(requestUrl, response) {
+        if (!response || !response.ok) return false;
+        if (!requestUrl) {
+            const contentType = response.headers?.get("content-type") || "";
+            return contentType.includes("json");
+        }
+        const normalized = requestUrl.toLowerCase();
+        return HUNTER_CONFIG.matrixUrlFragments.some(f => normalized.includes(f.toLowerCase()));
+    }
+
+    async function processPossibleHunterPayload(responseClone, requestUrl) {
+        if (HUNTER_STATE.processing) return;
+        try {
+            const contentType = responseClone.headers?.get("content-type") || "";
+            if (contentType && !contentType.includes("json")) return;
+
+            const rawData = await responseClone.json();
+            const matrix = findHeatseekerMatrix(rawData);
+            if (!matrix) return;
+
+            const signature = createPayloadSignature(matrix);
+            const now = Date.now();
+            if (signature === HUNTER_STATE.latestPayloadSignature && now - HUNTER_STATE.latestPayloadTime < HUNTER_CONFIG.duplicateWindowMs) {
+                return;
+            }
+
+            HUNTER_STATE.processing = true;
+            HUNTER_STATE.latestPayloadSignature = signature;
+            HUNTER_STATE.latestPayloadTime = now;
+
+            const result = analyzeMatrix(matrix, requestUrl);
+            HUNTER_STATE.latestResult = result;
+            HUNTER_STATE.activeSymbol = result.marketState.symbol;
+            HUNTER_STATE.connected = true;
+            HUNTER_STATE.updateCount += 1;
+            HUNTER_STATE.lastError = null;
+            HUNTER_STATE.lastMatrixType = result.matrixType;
+            renderHunterOverlay(result);
+        } catch (error) {
+            handleHunterError("Unable to process " + (requestUrl || "Skylit response"), error);
+        } finally {
+            HUNTER_STATE.processing = false;
+        }
+    }
+
+    function findHeatseekerMatrix(rawData) {
+        if (!rawData || typeof rawData !== "object") return null;
+        if (isHeatseekerMatrix(rawData)) return rawData;
+        if (rawData.data && isHeatseekerMatrix(rawData.data)) return rawData.data;
+        if (rawData.payload && isHeatseekerMatrix(rawData.payload)) return rawData.payload;
+        if (rawData.result && isHeatseekerMatrix(rawData.result)) return rawData.result;
+
+        const queue = [rawData];
+        const visited = new Set();
+        while (queue.length) {
+            const current = queue.shift();
+            if (!current || typeof current !== "object" || visited.has(current)) continue;
+            visited.add(current);
+            if (isHeatseekerMatrix(current)) return current;
+            for (const value of Object.values(current)) {
+                if (value && typeof value === "object") queue.push(value);
+            }
+        }
+        return null;
+    }
+
+    function isHeatseekerMatrix(candidate) {
+        if (!candidate || typeof candidate !== "object") return false;
+        const strikes = candidate.Strikes || candidate.strikes;
+        const gamma = candidate.GammaValues || candidate.gamma;
+        const vanna = candidate.VannaValues || candidate.vanna;
+        return Array.isArray(strikes) && strikes.length > 0 && (Array.isArray(gamma) || Array.isArray(vanna));
+    }
+
+    function createPayloadSignature(matrix) {
+        const symbol = matrix.symbol || matrix.Symbol || "Unknown";
+        const spot = matrix.CurrentSpot ?? matrix.currentSpot ?? matrix.spot ?? "N/A";
+        const updated = matrix.LastUpdated || matrix.lastUpdated || matrix.timestamp || "";
+        const strikes = matrix.Strikes || matrix.strikes || [];
+        const gamma = matrix.GammaValues || matrix.gamma || [];
+        const vanna = matrix.VannaValues || matrix.vanna || [];
+        return [symbol, spot, updated, strikes.length, strikes[0], strikes[strikes.length - 1], gamma.length, vanna.length].join("|");
+    }
+
+    function detectMatrixType(matrix, requestUrl) {
+        const url = (requestUrl || "").toLowerCase();
+        const hasGamma = Array.isArray(matrix.GammaValues || matrix.gamma) && (matrix.GammaValues || matrix.gamma).length > 0;
+        const hasVanna = Array.isArray(matrix.VannaValues || matrix.vanna) && (matrix.VannaValues || matrix.vanna).length > 0;
+        if (url.includes("vex") || url.includes("vanna")) return "VEX";
+        if (url.includes("gex") || url.includes("gamma")) return "GEX";
+        if (hasGamma && hasVanna) return "GEX+VEX";
+        if (hasVanna && !hasGamma) return "VEX";
+        return "GEX";
+    }
+
+    function analyzeMatrix(matrix, requestUrl) {
+        const marketState = buildMarketState(matrix);
+        const matrixType = detectMatrixType(matrix, requestUrl);
+        const nodes = buildInstitutionalNodes(marketState, matrixType);
+        const structure = buildInstitutionalStructure(nodes, marketState.spot);
+        const levels = buildLevelLadder(structure, marketState.spot);
+        const patterns = analyzePatterns(marketState, structure);
+        const decision = analyzeDecision(structure, patterns, levels);
+
+        const result = {
+            runtimeVersion: HUNTER_CONFIG.version,
+            generatedAt: new Date().toISOString(),
+            matrixType,
+            marketState,
+            nodes,
+            structure,
+            levels,
+            patterns,
+            decision
+        };
+        recordSnapshot(result);
+        return result;
+    }
+
+    function buildMarketState(matrix) {
+        return {
+            symbol: matrix.symbol || matrix.Symbol || "Unknown",
+            spot: toFiniteNumber(matrix.CurrentSpot ?? matrix.currentSpot ?? matrix.spot),
+            strikes: Array.isArray(matrix.Strikes) ? matrix.Strikes : (matrix.strikes || []),
+            gamma: Array.isArray(matrix.GammaValues) ? matrix.GammaValues : (matrix.gamma || []),
+            vanna: Array.isArray(matrix.VannaValues) ? matrix.VannaValues : (matrix.vanna || []),
+            timestamp: matrix.LastUpdated || matrix.lastUpdated || new Date().toISOString()
+        };
+    }
+
+    function maxAbsolute(values) {
+        if (!Array.isArray(values) || values.length === 0) return 0;
+        let max = 0;
+        for (let i = 0; i < values.length; i++) {
+            const v = Math.abs(Number(values[i]) || 0);
+            if (v > max) max = v;
+        }
+        return max;
+    }
+
+    function buildInstitutionalNodes(marketState, matrixType) {
+        const nodes = [];
+        const { strikes, gamma, vanna, spot } = marketState;
+
+        for (let i = 0; i < strikes.length; i++) {
+            const strike = Number(strikes[i]);
+            const gammaRow = gamma[i] || [];
+            const vannaRow = vanna[i] || [];
+
+            const gammaPeak = maxAbsolute(gammaRow);
+            const vannaPeak = maxAbsolute(vannaRow);
+
+            const combinedScore = (gammaPeak * HUNTER_CONFIG.gammaWeight) + (vannaPeak * HUNTER_CONFIG.vannaWeight);
+
+            let sizeScore;
+            if (matrixType === "VEX") {
+                sizeScore = vannaPeak > 0 ? vannaPeak : gammaPeak;
+            } else if (matrixType === "GEX") {
+                sizeScore = gammaPeak > 0 ? gammaPeak : vannaPeak;
+            } else {
+                sizeScore = Math.max(gammaPeak, vannaPeak);
+            }
+
+            const distance = spot !== null ? strike - spot : null;
+
+            nodes.push({
+                strike,
+                gamma: gammaRow,
+                vanna: vannaRow,
+                gammaPeak,
+                vannaPeak,
+                combinedScore,
+                sizeScore,
+                distance,
+                absDistance: distance !== null ? Math.abs(distance) : null
+            });
+        }
+        return nodes;
+    }
+
+    function buildInstitutionalStructure(nodes, spot) {
+        const byCombined = [...nodes].sort((a, b) => b.combinedScore - a.combinedScore);
+        const bySize = [...nodes].sort((a, b) => b.sizeScore - a.sizeScore);
+        const byGamma = [...nodes].sort((a, b) => b.gammaPeak - a.gammaPeak);
+        const byVanna = [...nodes].sort((a, b) => b.vannaPeak - a.vannaPeak);
+
+        const kingGammaNode = byGamma[0] || null;
+        const kingVannaNode = byVanna[0] || null;
+        const kingCombinedNode = byCombined[0] || null;
+        const kingSizeNode = bySize[0] || null;
+        const kingSize = kingSizeNode ? kingSizeNode.sizeScore : 0;
+
+        const strongestNodeAboveSpot = nodes.filter(n => spot !== null && n.strike > spot).sort((a, b) => b.combinedScore - a.combinedScore)[0] || null;
+        const strongestNodeBelowSpot = nodes.filter(n => spot !== null && n.strike < spot).sort((a, b) => b.combinedScore - a.combinedScore)[0] || null;
+
+        let nearestNode = null;
+        let nearestDistance = Number.MAX_VALUE;
+        if (spot !== null) {
+            for (const node of nodes) {
+                const d = Math.abs(node.strike - spot);
+                if (d < nearestDistance) {
+                    nearestDistance = d;
+                    nearestNode = node;
+                }
+            }
+        }
+
+        const nearbyNodes = nodes.filter(n => n.absDistance !== null && n.absDistance <= HUNTER_CONFIG.majorNodeDistance).sort((a, b) => a.absDistance - b.absDistance);
+
+        return {
+            nodes,
+            kingGammaNode,
+            kingVannaNode,
+            kingCombinedNode,
+            kingSizeNode,
+            kingNode: kingSizeNode,
+            kingSize,
+            strongestNodeAboveSpot,
+            strongestNodeBelowSpot,
+            nearestNode,
+            nearestDistance: nearestNode ? nearestDistance : null,
+            nearbyNodes,
+            topBySize: bySize.slice(0, 12),
+            topCombined: byCombined.slice(0, 12)
+        };
+    }
+
+    function getMajorNodes(structure) {
+        const kingSize = structure.kingSize || 0;
+        if (kingSize <= 0) return [];
+        const threshold = kingSize * HUNTER_CONFIG.majorNodeThreshold;
+        return (structure.topBySize || []).filter(n => n.sizeScore >= threshold).map(n => {
+            let role = "Major";
+            if (structure.kingSizeNode && n.strike === structure.kingSizeNode.strike) role = "King";
+            else if (structure.kingGammaNode && n.strike === structure.kingGammaNode.strike) role = "King Gamma";
+            return { ...n, role };
+        });
+    }
+
+    function buildLevelLadder(structure, spot) {
+        if (spot === null) return { targets: [], supports: [], magnet: null };
+
+        const significant = (structure.topCombined || []).filter(n => n.combinedScore > 0);
+        const above = significant.filter(n => n.strike > spot).sort((a, b) => a.strike - b.strike);
+        const below = significant.filter(n => n.strike < spot).sort((a, b) => b.strike - a.strike);
+
+        const targets = [];
+        const used = new Set();
+        for (const node of above) {
+            if (targets.length >= 3) break;
+            if (used.has(node.strike)) continue;
+            targets.push({
+                strike: node.strike,
+                score: node.combinedScore,
+                gamma: node.gammaPeak,
+                vanna: node.vannaPeak,
+                distance: node.strike - spot,
+                label: targets.length === 0 ? "T1" : targets.length === 1 ? "T2" : "T3"
+            });
+            used.add(node.strike);
+        }
+
+        const supports = [];
+        for (const node of below) {
+            if (supports.length >= 3) break;
+            if (used.has(node.strike)) continue;
+            supports.push({
+                strike: node.strike,
+                score: node.combinedScore,
+                gamma: node.gammaPeak,
+                vanna: node.vannaPeak,
+                distance: spot - node.strike,
+                label: supports.length === 0 ? "S1" : supports.length === 1 ? "S2" : "S3"
+            });
+            used.add(node.strike);
+        }
+
+        const magnet = structure.kingCombinedNode || structure.kingSizeNode || structure.kingGammaNode || null;
+        return {
+            targets,
+            supports,
+            magnet: magnet ? { strike: magnet.strike, score: magnet.combinedScore, gamma: magnet.gammaPeak, vanna: magnet.vannaPeak } : null
+        };
+    }
+
+    function analyzePatterns(marketState, structure) {
+        const spot = marketState.spot;
+        const majorNodes = getMajorNodes(structure);
+        const nearbyMajorNodes = majorNodes.map(node => ({
+            ...node,
+            distanceFromSpot: spot !== null ? Math.abs(node.strike - spot) : null
+        })).filter(n => n.distanceFromSpot !== null && n.distanceFromSpot <= HUNTER_CONFIG.majorNodeDistance).sort((a, b) => a.distanceFromSpot - b.distanceFromSpot);
+
+        const primaryNode = nearbyMajorNodes[0] || null;
+        const locationEligible = primaryNode !== null;
+
+        if (!locationEligible) {
+            return {
+                status: "INELIGIBLE",
+                locationEligible: false,
+                primaryNode: null,
+                nearbyMajorNodes: [],
+                majorNodeCount: majorNodes.length,
+                detectedPatterns: [],
+                candidatePatterns: [],
+                reason: "Price is not within range of a major node (>= 25% of King peak)."
+            };
+        }
+
+        const direction = primaryNode.strike < spot ? "BULLISH_DEFLECTION_WATCH" : primaryNode.strike > spot ? "BEARISH_DEFLECTION_WATCH" : "PIVOT_WATCH";
+        const candidate = {
+            name: "Node Deflection",
+            stage: "WATCHING",
+            confidence: 35,
+            direction,
+            strike: primaryNode.strike,
+            nodeRole: primaryNode.role,
+            distanceFromSpot: primaryNode.distanceFromSpot,
+            reason: "Price is near a major institutional node."
+        };
+
+        return {
+            status: "ELIGIBLE",
+            locationEligible: true,
+            primaryNode,
+            nearbyMajorNodes,
+            majorNodeCount: majorNodes.length,
+            detectedPatterns: [],
+            candidatePatterns: [candidate],
+            reason: "Price is within range of a major institutional node."
+        };
+    }
+
+    function analyzeDecision(structure, patterns, levels) {
+        const reasons = [];
+        let score = 0;
+
+        if (!structure || typeof structure !== "object") {
+            return buildDecisionResult({ score: 0, grade: "-", action: "AVOID", direction: null, confidence: 0, reasons: ["No institutional structure available."], levels: null, primaryPattern: null, locationEligible: false });
+        }
+
+        const nearestNode = structure.nearestNode || null;
+        const nearbyNodes = Array.isArray(structure.nearbyNodes) ? structure.nearbyNodes : [];
+        const kingGamma = structure.kingGammaNode || null;
+        const strongestAbove = structure.strongestNodeAboveSpot || null;
+        const strongestBelow = structure.strongestNodeBelowSpot || null;
+        const locationEligible = patterns && patterns.locationEligible === true;
+
+        if (locationEligible) {
+            if (strongestBelow) { score += 25; reasons.push("Price is near institutional demand (strongest node below)."); }
+            if (strongestAbove) { score += 10; reasons.push("Institutional resistance exists above."); }
+            if (kingGamma && nearestNode && Math.abs(kingGamma.strike - nearestNode.strike) <= 2.5) { score += 20; reasons.push("Trading near King Gamma."); }
+            if (nearbyNodes.length >= 3) { score += 12; reasons.push("Multiple institutional nodes clustered nearby."); }
+            if (nearbyNodes.length >= 5) { score += 8; reasons.push("High-density institutional liquidity zone."); }
+            if (levels && levels.targets && levels.targets.length >= 2) { score += 6; reasons.push("Clear multi-level target structure available."); }
+        } else {
+            reasons.push(patterns?.reason || "Price is not within range of a major node.");
+        }
+
+        let primaryPattern = null;
+        let patternDirection = null;
+
+        if (patterns && typeof patterns === "object" && locationEligible) {
+            const confirmed = Array.isArray(patterns.detectedPatterns) ? patterns.detectedPatterns : [];
+            const candidates = Array.isArray(patterns.candidatePatterns) ? patterns.candidatePatterns : [];
+            const ranked = [...confirmed.map(p => ({ ...p, _confirmed: true })), ...candidates.filter(p => p && p.stage !== "WAITING_FOR_HISTORY" && p.stage !== "NO_LOCATION").map(p => ({ ...p, _confirmed: false }))].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+            primaryPattern = ranked[0] || null;
+
+            if (primaryPattern) {
+                patternDirection = primaryPattern.direction || null;
+                const boost = primaryPattern._confirmed ? Math.min(35, Math.round((primaryPattern.confidence || 50) * 0.35)) : Math.min(20, Math.round((primaryPattern.confidence || 30) * 0.25));
+                score += boost;
+                reasons.push((primaryPattern._confirmed ? "Confirmed" : "Candidate") + " pattern: " + primaryPattern.name + " (" + primaryPattern.stage + ").");
+            } else {
+                reasons.push("Location eligible but no active pattern yet.");
+            }
+        }
+
+        let grade = "-";
+        let action = "AVOID";
+
+        if (!locationEligible) {
+            action = "AVOID";
+            grade = "-";
+            score = Math.min(score, 10);
+        } else {
+            if (score >= 75) grade = "A";
+            else if (score >= 55) grade = "B";
+            else if (score >= 35) grade = "Watch";
+            else grade = "Low";
+
+            if (score >= 70 && primaryPattern && primaryPattern._confirmed) action = "TAKE";
+            else if (score >= 50) action = "SETUP";
+            else action = "WATCH";
+        }
+
+        let direction = patternDirection;
+        if (!direction && locationEligible && nearestNode) {
+            if (strongestBelow && nearestNode.strike === strongestBelow.strike) direction = "BULLISH_BIAS";
+            else if (strongestAbove && nearestNode.strike === strongestAbove.strike) direction = "BEARISH_BIAS";
+            else direction = "NEUTRAL";
+        }
+
+        let confidence = 0;
+        if (locationEligible) {
+            confidence = Math.min(95, Math.round(score * 0.9));
+            if (action === "WATCH") confidence = Math.min(confidence, 45);
+            if (action === "SETUP") confidence = Math.max(confidence, 50);
+            if (action === "TAKE") confidence = Math.max(confidence, 70);
+        } else {
+            confidence = Math.min(15, score);
+        }
+
+        return buildDecisionResult({
+            score, grade, action, direction, confidence, reasons, levels,
+            primaryPattern: primaryPattern ? { name: primaryPattern.name, stage: primaryPattern.stage, confidence: primaryPattern.confidence, direction: primaryPattern.direction, strike: primaryPattern.strike, confirmed: !!primaryPattern._confirmed } : null,
+            locationEligible
+        });
+    }
+
+    function buildDecisionResult(data) {
+        return {
+            version: "0.8.3",
+            score: data.score,
+            grade: data.grade,
+            action: data.action,
+            direction: data.direction,
+            confidence: data.confidence,
+            reasons: data.reasons,
+            levels: data.levels,
+            primaryPattern: data.primaryPattern,
+            locationEligible: data.locationEligible
+        };
+    }
+
+    function recordSnapshot(result) {
+        const symbol = result?.marketState?.symbol;
+        if (!symbol) return;
+        const history = HUNTER_STATE.symbolHistory.get(symbol) || [];
+        const snapshot = {
+            timestamp: result.generatedAt,
+            spot: result.marketState.spot,
+            kingStrike: result.structure?.kingSizeNode?.strike ?? null,
+            action: result.decision?.action,
+            score: result.decision?.score,
+            matrixType: result.matrixType
+        };
+        HUNTER_STATE.symbolHistory.set(symbol, [...history, snapshot].slice(-HUNTER_CONFIG.maxSnapshotsPerSymbol));
+    }
+
+    function toFiniteNumber(value) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : null;
+    }
+
+    function handleHunterError(context, error) {
+        HUNTER_STATE.lastError = { context, message: error?.message || String(error), timestamp: new Date().toISOString() };
+        console.warn("[Hunter v" + HUNTER_CONFIG.version + "] " + context + ":", error);
+        renderHunterError(HUNTER_STATE.lastError);
+    }
+
+    function createHunterPanel() {
+        if (document.getElementById(HUNTER_CONFIG.panelId)) return;
+        const panel = document.createElement("div");
+        panel.id = HUNTER_CONFIG.panelId;
+        panel.style.cssText = "position:fixed;top:12px;right:12px;width:360px;max-height:90vh;overflow-y:auto;background:rgba(12,14,20,0.97);border:1px solid #2a2f3a;border-radius:10px;color:#e6e8ee;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;font-size:12px;z-index:999999;box-shadow:0 8px 32px rgba(0,0,0,0.5);backdrop-filter:blur(8px)";
+        panel.innerHTML = '<div style="padding:10px 12px;border-bottom:1px solid #2a2f3a;display:flex;justify-content:space-between;align-items:center"><div style="font-weight:600">Hunter <span style="opacity:0.55;font-weight:400">v' + HUNTER_CONFIG.version + '</span></div><div id="hunter-status-dot" style="width:8px;height:8px;border-radius:50%;background:#555"></div></div><div id="' + HUNTER_CONFIG.contentId + '" style="padding:12px"><div style="opacity:0.6">Waiting for Heatseeker matrix...</div></div>';
+        document.body.appendChild(panel);
+    }
+
+    function renderHunterOverlay(result) {
+        createHunterPanel();
+        const content = document.getElementById(HUNTER_CONFIG.contentId);
+        const statusDot = document.getElementById("hunter-status-dot");
+        if (!content) return;
+        if (statusDot) statusDot.style.background = "#22c55e";
+
+        const d = result.decision || {};
+        const s = result.structure || {};
+        const m = result.marketState || {};
+        const levels = result.levels || d.levels || {};
+        const targets = levels.targets || [];
+        const supports = levels.supports || [];
+        const p = result.patterns || {};
+
+        const actionColor = { TAKE: "#22c55e", SETUP: "#3b82f6", WATCH: "#eab308", AVOID: "#ef4444" }[d.action] || "#94a3b8";
+        const locationText = d.locationEligible ? "Location eligible (" + (p.majorNodeCount || 0) + " major nodes)" : "Not near major node";
+        const patternLine = d.primaryPattern ? (d.primaryPattern.name + " - " + d.primaryPattern.stage + (d.primaryPattern.confirmed ? " (CONFIRMED)" : "")) : "No primary pattern";
+
+        let targetHtml = targets.length === 0 ? '<div style="opacity:0.5">No clear targets</div>' : targets.map(t => '<div><b>' + t.label + '</b>  ' + fmt(t.strike) + '  <span style="opacity:0.55">(+' + fmt(t.distance) + ')</span></div>').join("");
+        let supportHtml = supports.length === 0 ? '<div style="opacity:0.5">No clear supports</div>' : supports.map(s => '<div><b>' + s.label + '</b>  ' + fmt(s.strike) + '  <span style="opacity:0.55">(-' + fmt(s.distance) + ')</span></div>').join("");
+
+        const magnetStrike = levels.magnet ? fmt(levels.magnet.strike) : "-";
+
+        let diagHtml = "";
+        const nearbyForDiag = (s.nearbyNodes || []).slice(0, 5);
+        if (nearbyForDiag.length > 0) {
+            diagHtml = '<div style="border-top:1px solid #2a2f3a;padding-top:8px;margin-bottom:8px"><div style="font-size:10px;text-transform:uppercase;opacity:0.5;margin-bottom:4px">Nearby Peak Sizes (debug)</div>' +
+                nearbyForDiag.map(n => {
+                    const pct = s.kingSize > 0 ? Math.round((n.sizeScore / s.kingSize) * 100) : 0;
+                    return '<div style="font-size:11px">' + fmt(n.strike) + '  G-peak:' + fmtMag(n.gammaPeak) + '  V-peak:' + fmtMag(n.vannaPeak) + '  Size:' + fmtMag(n.sizeScore) + '  (' + pct + '%)</div>';
+                }).join("") +
+                '<div style="font-size:11px;opacity:0.6;margin-top:2px">King peak threshold (25%): ' + fmtMag(s.kingSize * 0.25) + '</div></div>';
+        }
+
+        content.innerHTML =
+            '<div style="margin-bottom:10px"><div style="font-size:11px;opacity:0.55;margin-bottom:2px">' + (m.symbol || "-") + '  Spot ' + fmt(m.spot) + '  <span style="opacity:0.7">[' + (result.matrixType || "-") + ']</span></div>' +
+            '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><span style="background:' + actionColor + ';color:#000;font-weight:700;padding:3px 8px;border-radius:4px;font-size:13px">' + (d.action || "-") + '</span><span style="font-weight:600">' + (d.direction || "-") + '</span></div>' +
+            '<div style="display:flex;gap:12px;font-size:11px;opacity:0.8"><span>Score <b>' + (d.score ?? "-") + '</b></span><span>Grade <b>' + (d.grade || "-") + '</b></span><span>Conf <b>' + (d.confidence ?? "-") + '%</b></span></div></div>' +
+            '<div style="border-top:1px solid #2a2f3a;padding-top:8px;margin-bottom:8px"><div style="font-size:10px;text-transform:uppercase;opacity:0.5;margin-bottom:4px">Targets (60% VEX / 40% GEX)</div>' + targetHtml + '</div>' +
+            '<div style="border-top:1px solid #2a2f3a;padding-top:8px;margin-bottom:8px"><div style="font-size:10px;text-transform:uppercase;opacity:0.5;margin-bottom:4px">Supports</div>' + supportHtml + '</div>' +
+            '<div style="border-top:1px solid #2a2f3a;padding-top:8px;margin-bottom:8px"><div style="font-size:10px;text-transform:uppercase;opacity:0.5;margin-bottom:4px">Structure</div>' +
+            '<div>Magnet / King: <b>' + magnetStrike + '</b></div><div>King Gamma: <b>' + fmt(s.kingGammaNode?.strike) + '</b> (peak ' + fmtMag(s.kingGammaNode?.gammaPeak) + ')</div>' +
+            '<div>Strongest Above: <b>' + fmt(s.strongestNodeAboveSpot?.strike) + '</b></div><div>Strongest Below: <b>' + fmt(s.strongestNodeBelowSpot?.strike) + '</b></div><div>Nearby nodes: <b>' + (s.nearbyNodes?.length ?? 0) + '</b></div></div>' +
+            diagHtml +
+            '<div style="border-top:1px solid #2a2f3a;padding-top:8px;margin-bottom:8px"><div style="font-size:10px;text-transform:uppercase;opacity:0.5;margin-bottom:4px">Pattern</div><div>' + locationText + '</div><div style="margin-top:4px">' + patternLine + '</div></div>' +
+            '<div style="border-top:1px solid #2a2f3a;padding-top:8px"><div style="font-size:10px;text-transform:uppercase;opacity:0.5;margin-bottom:4px">Reasons</div><ul style="margin:0;padding-left:16px;opacity:0.85">' +
+            ((d.reasons || []).map(r => '<li style="margin-bottom:2px">' + r + '</li>').join("") || '<li>None</li>') + '</ul></div>' +
+            '<div style="margin-top:10px;font-size:10px;opacity:0.4;text-align:right">#' + HUNTER_STATE.updateCount + '  ' + new Date(result.generatedAt).toLocaleTimeString() + '</div>';
+    }
+
+    function renderHunterError(err) {
+        createHunterPanel();
+        const content = document.getElementById(HUNTER_CONFIG.contentId);
+        const statusDot = document.getElementById("hunter-status-dot");
+        if (statusDot) statusDot.style.background = "#ef4444";
+        if (content) content.innerHTML = '<div style="color:#f87171;font-weight:600;margin-bottom:4px">Error</div><div style="opacity:0.8">' + err.context + '</div><div style="opacity:0.6;margin-top:4px;font-size:11px">' + err.message + '</div>';
+    }
+
+    function fmt(v) {
+        if (v === null || v === undefined) return "-";
+        if (typeof v === "number") return v.toFixed(2).replace(/\.00$/, "");
+        return String(v);
+    }
+
+    function fmtMag(v) {
+        if (v === null || v === undefined) return "-";
+        return Math.round(v).toLocaleString();
+    }
+
+    createHunterPanel();
+    console.log("[Hunter v" + HUNTER_CONFIG.version + "] Ready - peak node size (max abs)");
+})();
